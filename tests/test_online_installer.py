@@ -120,11 +120,14 @@ class InstallPlanTests(unittest.TestCase):
                     patch.object(install, "run_task") as run:
                 result = install._install(lambda *args: None, bundle_root=bundle, target=target, browser=True)
             self.assertEqual(result, target)
-            self.assertEqual(len(run.call_args_list), 3)
+            self.assertEqual(len(run.call_args_list), 4)
             commands = [call.args[0] for call in run.call_args_list]
             self.assertTrue(all(command[0] == str(target / "runtime/python.exe") for command in commands))
-            self.assertIn("https://pypi.org/simple", commands[0])
-            self.assertEqual(commands[1][1:], ["-m", "playwright", "install", "chromium"])
+            self.assertIn("setuptools>=70,<81", commands[0])
+            self.assertIn("--only-binary=:all:", commands[0])
+            self.assertIn("--no-build-isolation", commands[1])
+            self.assertIn("https://pypi.org/simple", commands[1])
+            self.assertEqual(commands[2][1:], ["-m", "playwright", "install", "chromium"])
             self.assertTrue((target / "app/requirements.txt").is_file())
             self.assertFalse((target / "config/api_keys.json").exists())
 
@@ -139,6 +142,36 @@ class InstallPlanTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     install._install(lambda *a: None, bundle_root=bundle, target=base / "target")
                 network.assert_not_called()
+
+
+class TaskDiagnosticsTests(unittest.TestCase):
+    def test_build_backend_error_is_logged_and_not_blamed_on_connection(self):
+        import sys
+        with tempfile.TemporaryDirectory() as folder:
+            log = Path(folder) / "setup-install.log"
+            script = "print(\"Cannot import 'setuptools.build_meta'\"); raise SystemExit(2)"
+            with self.assertRaisesRegex(RuntimeError, "ferramentas de preparação"):
+                install.run_task([sys.executable, "-c", script], lambda *a: None, log_path=log)
+            self.assertIn("setuptools.build_meta", log.read_text(encoding="utf-8"))
+
+    def test_log_redacts_credentials_from_failure_output(self):
+        import sys
+        with tempfile.TemporaryDirectory() as folder:
+            log = Path(folder) / "setup-install.log"
+            line = "https://example-user:example-password@example.invalid password=example-secret Authorization: Bearer example-token"
+            script = "print(" + repr(line) + "); raise SystemExit(1)"
+            with self.assertRaises(RuntimeError):
+                install.run_task([sys.executable, "-c", script], lambda *a: None, log_path=log)
+            text = log.read_text(encoding="utf-8")
+            for secret in ("example-password", "example-secret", "example-token"):
+                self.assertNotIn(secret, text)
+            self.assertIn("[REDACTED]", text)
+
+    def test_pre_cancelled_task_does_not_start_a_process(self):
+        with patch.object(install.subprocess, "Popen") as process:
+            with self.assertRaises(install.InstallationCancelled):
+                install.run_task(["unused"], lambda *a: None, cancel=lambda: True)
+            process.assert_not_called()
 
 
 if __name__ == "__main__":

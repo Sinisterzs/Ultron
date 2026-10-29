@@ -2,8 +2,8 @@
 from __future__ import annotations
 
 import platform
-from PyQt6.QtCore import Qt, pyqtSignal, QThread
-from PyQt6.QtGui import QPainter, QColor, QPen, QRadialGradient
+from PyQt6.QtCore import Qt, pyqtSignal, QThread, QUrl
+from PyQt6.QtGui import QPainter, QColor, QPen, QRadialGradient, QDesktopServices
 from PyQt6.QtWidgets import (
     QWidget, QHBoxLayout, QVBoxLayout, QLabel, QLineEdit, QPushButton,
     QStackedWidget, QFrame, QCheckBox, QScrollArea, QProgressBar,
@@ -123,6 +123,9 @@ class SetupOverlay(QWidget):
         self.progress_bar.setFixedHeight(5); progress_layout.addWidget(self.progress_bar)
         self.cancel = QPushButton("Cancelar preparação")
         self.cancel.clicked.connect(self._cancel_preparation); progress_layout.addWidget(self.cancel)
+        self.log_button = QPushButton("Abrir registro de instalação")
+        self.log_button.clicked.connect(self._open_install_log)
+        progress_layout.addWidget(self.log_button); self.log_button.hide()
         main.addWidget(self.progress_box); self.progress_box.hide()
         self.error = QLabel(); self.error.setWordWrap(True)
         self.error.setStyleSheet("color:#ff2034;font-size:12px"); main.addWidget(self.error)
@@ -242,12 +245,19 @@ class SetupOverlay(QWidget):
         self.next.setEnabled(False)
         self.done.emit(self.settings["gemini_api_key"], self._sel_os)
 
+    def _open_install_log(self):
+        from core.app_paths import data_root
+        path = data_root() / "logs/setup-install.log"
+        if path.is_file():
+            QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
+
     def _begin_preparation(self):
         if self._preview:
             self.show_error("Prévia visual: nenhum download, instalação ou salvamento será feito.")
             return
         from core.install_manager import check_local_environment
         self._preparing = True
+        self.log_button.hide()
         self.pages.setCurrentIndex(self._preparation_page_index)
         self.browser_requested = self.browser.isChecked()
         self.back.setEnabled(False); self.next.setEnabled(False)
@@ -278,6 +288,9 @@ class SetupOverlay(QWidget):
         else:
             self.show_error(message or "Não foi possível preparar o ambiente.")
             self.next.setText("Tentar novamente  →")
+            self.progress_bar.setRange(0, 100); self.progress_bar.setValue(0)
+            from core.app_paths import data_root
+            self.log_button.setVisible((data_root() / "logs/setup-install.log").is_file())
 
     def _cancel_preparation(self):
         if self._worker:

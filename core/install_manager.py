@@ -6,6 +6,7 @@ No command uses the application's frozen executable as a Python interpreter.
 from __future__ import annotations
 
 import hashlib
+from collections import deque
 import json
 import os
 import platform
@@ -96,23 +97,43 @@ def extract_runtime(archive, target):
         bundle.extractall(target)
 
 
-def run_task(command, emit, cancel=lambda: False, *, env=None, cwd=None, timeout=1800):
-    """Read subprocess output without blocking the GUI or claiming fake percentages."""
+def redact_install_output(text):
+    """Keep local diagnostics useful without logging authentication material."""
+    text = re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", text)
+    text = re.sub(r"(?i)(https?://)[^/\s:@]+:[^/@\s]+@", r"\1[REDACTED]@", text)
+    text = re.sub(r"(?i)(authorization\s*:\s*)(?:Bearer|Basic)\s+\S+", r"\1[REDACTED]", text)
+    text = re.sub(r"(?i)\b((?:api[_-]?key|client[_-]?secret|access[_-]?token|refresh[_-]?token|password)\s*[:=]\s*)[^\s,;]+",
+                  r"\1[REDACTED]", text)
+    return text
+
+
+def run_task(command, emit, cancel=lambda: False, *, env=None, cwd=None, timeout=1800, log_path=None):
+    """Run a setup stage off the GUI thread and preserve sanitized diagnostics."""
+    check_cancelled(cancel)
     options = {"creationflags": subprocess.CREATE_NO_WINDOW} if os.name == "nt" else {}
-    process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                               text=True, encoding="utf-8", errors="replace", env=env, cwd=cwd, **options)
-    lines = queue.Queue()
-
-    def read():
-        try:
-            for line in process.stdout:
-                lines.put(line)
-        finally:
-            lines.put(None)
-
-    threading.Thread(target=read, daemon=True).start()
-    deadline = time.monotonic() + timeout
+    process = None
+    logfile = None
+    tail = deque(maxlen=50)
     try:
+        if log_path is not None:
+            path = Path(log_path)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            mode = "w" if path.exists() and path.stat().st_size > 2 * 1024 * 1024 else "a"
+            logfile = path.open(mode, encoding="utf-8")
+            logfile.write("\n=== Etapa de preparação ===\n")
+        process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                   text=True, encoding="utf-8", errors="replace", env=env, cwd=cwd, **options)
+        lines = queue.Queue()
+
+        def read():
+            try:
+                for line in process.stdout:
+                    lines.put(line)
+            finally:
+                lines.put(None)
+
+        threading.Thread(target=read, daemon=True).start()
+        deadline = time.monotonic() + timeout
         while True:
             check_cancelled(cancel)
             if time.monotonic() > deadline:
@@ -123,19 +144,34 @@ def run_task(command, emit, cancel=lambda: False, *, env=None, cwd=None, timeout
                 continue
             if line is None:
                 break
+            clean = redact_install_output(line)
+            tail.append(clean)
+            if logfile:
+                logfile.write(clean); logfile.flush()
             match = re.search(r"^Collecting ([A-Za-z0-9_.-]+)", line)
             if match:
                 emit("Baixando " + match.group(1)[:70], 0, 0)
             elif line.startswith("Installing collected packages"):
                 emit("Instalando bibliotecas no ambiente privado", 0, 0)
         if process.wait(timeout=20) != 0:
-            raise RuntimeError("Não foi possível concluir esta etapa. Verifique a conexão e tente novamente.")
+            detail = "".join(tail)
+            if "setuptools.build_meta" in detail or "BackendUnavailable" in detail:
+                reason = "Não foi possível carregar as ferramentas de preparação das bibliotecas."
+            elif "No matching distribution found" in detail:
+                reason = "Uma biblioteca não tem uma versão compatível disponível neste ambiente."
+            elif any(word in detail for word in ("ConnectionError", "ReadTimeout", "CERTIFICATE_VERIFY_FAILED", "Temporary failure")):
+                reason = "Falha de conexão ao obter os componentes."
+            else:
+                reason = "Uma etapa de instalação falhou."
+            raise RuntimeError(reason + " Consulte o registro de instalação para ver os detalhes.")
     finally:
-        if process.poll() is None:
-            process.kill()
-            process.wait(timeout=10)
-        if process.stdout:
-            process.stdout.close()
+        if process is not None:
+            if process.poll() is None:
+                process.kill(); process.wait(timeout=10)
+            if process.stdout:
+                process.stdout.close()
+        if logfile:
+            logfile.close()
 
 
 def installation_root():
@@ -192,16 +228,26 @@ def _install(emit, cancel=lambda: False, *, bundle_root=None, target=None, brows
     env.pop("PYTHONPATH", None); env.pop("PYTHONHOME", None)
     env["PYTHONUTF8"] = "1"
     env["PLAYWRIGHT_BROWSERS_PATH"] = str(data_root() / "browsers")
+    log = data_root() / "logs/setup-install.log"
+    emit("Preparando ferramentas de instalação", 0, 0)
+    # Embedded Python ignores pip's temporary build environment paths. Install
+    # the build backend in our own runtime before preparing source packages.
+    # Keep setuptools below 81 for legacy packages that still use pkg_resources.
+    run_task([str(python), "-m", "pip", "--isolated", "install", "--disable-pip-version-check",
+              "--no-warn-script-location", "--progress-bar", "off", "--only-binary=:all:",
+              "--index-url", "https://pypi.org/simple", "setuptools>=70,<81", "wheel>=0.45,<1"],
+             emit, cancel, env=env, cwd=app, log_path=log)
     emit("Baixando e instalando as bibliotecas necessárias", 0, 0)
     run_task([str(python), "-m", "pip", "--isolated", "install", "--disable-pip-version-check",
-              "--no-warn-script-location", "--progress-bar", "off", "--index-url", "https://pypi.org/simple",
-              "-r", str(app / "requirements.txt")], emit, cancel, env=env, cwd=app)
+              "--no-warn-script-location", "--progress-bar", "off", "--no-build-isolation",
+              "--index-url", "https://pypi.org/simple", "-r", str(app / "requirements.txt")],
+             emit, cancel, env=env, cwd=app, log_path=log)
     if browser:
         emit("Baixando navegador para automação web", 0, 0)
-        run_task([str(python), "-m", "playwright", "install", "chromium"], emit, cancel, env=env, cwd=app)
+        run_task([str(python), "-m", "playwright", "install", "chromium"], emit, cancel, env=env, cwd=app, log_path=log)
     emit("Conferindo o ambiente instalado", 0, 0)
-    run_task([str(python), "-c", "import numpy, sounddevice, spotipy, fastapi; from PyQt6.QtWidgets import QApplication; from google import genai"],
-             emit, cancel, env=env, cwd=app, timeout=90)
+    run_task([str(python), "-c", "import numpy, sounddevice, spotipy, fastapi, pyautogui; from PyQt6.QtWidgets import QApplication; from google import genai"],
+             emit, cancel, env=env, cwd=app, timeout=90, log_path=log)
     check_cancelled(cancel)
     emit("Ambiente preparado", 1, 1)
     return target

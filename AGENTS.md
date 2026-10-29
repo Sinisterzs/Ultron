@@ -256,7 +256,10 @@ para limitações, build e validações ainda pendentes.
 
 O Setup online usa `installer/Bootstrap.spec` e `installer/build-online.ps1`.
 Seu Python privado permite instalar bibliotecas; isso não autoriza executar
-`ULTRON-Setup.exe -m pip`. Manter o payload por allowlist e hashes. Não publicar
+`ULTRON-Setup.exe -m pip`. O bootstrap prepara setuptools/wheel no
+próprio runtime e instala os requisitos com `--no-build-isolation`, pois a
+distribuição embeddable não encontra o backend temporário usado pelo pip.
+Preservar essa ordem e o log sanitizado `data_root()/logs/setup-install.log`. Manter o payload por allowlist e hashes. Não publicar
 nem ligar consultas a um GitHub upstream presumido: configurar o repositório
 do proprietário em `release_config.json`. O workflow produz rascunho de release.
 O cartão de atualização não pode tomar foco, bloquear a UI, baixar ou executar

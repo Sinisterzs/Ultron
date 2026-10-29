@@ -1,20 +1,34 @@
-# Validação do rascunho — 29/10/2026
+# Validação da correção — 29/10/2026
 
-- Artefato: `dist/ULTRON-Setup.exe`, Windows x64, 37.612.716 bytes.
-- SHA-256 disponível em `dist/ULTRON-Setup.exe.sha256`.
-- 105 testes locais passaram (armazenamento, caminhos, Qt, preparação, releases e regressões WhatsApp com mocks).
-- O executável abriu o wizard em modo offscreen e verificou os hashes de 94 arquivos do payload.
-- Esse teste não instalou o aplicativo, não usou a rede, não criou configuração e não iniciou o assistente.
-- O runtime privado Python e o bootstrap pip foram baixados separadamente em `.installer-checks/`, com os hashes fixos conferidos; o pip iniciou nesse runtime.
-- As prévias mostram dados fictícios. A barra na imagem de preparação é uma demonstração visual; o fluxo real usa bytes recebidos ou estado indeterminado.
-- Release configurado para `Sinisterzs/Ultron`. Não houve push, criação de release ou publicação no GitHub.
-- Atualizações mantêm o aviso discreto e o link para GitHub. O atualizador automático foi adiado por decisão do usuário.
-- A falha de abertura do primeiro build foi corrigida removendo a ICU incompatível capturada do PATH do Poppler e harmonizando o runtime C++ do Qt.
+## Causa e mudança
 
-## Ainda não validado
+A primeira prévia falhava ao preparar PyAutoGUI com `BackendUnavailable: Cannot
+import setuptools.build_meta`. O runtime Python embeddable não acessava o backend
+criado no ambiente temporário de build do pip. A correção instala setuptools/wheel
+no runtime privado e utiliza `--no-build-isolation` para preparar os requisitos.
+Não foi necessário alterar o Python original do computador.
 
-Instalação completa em Windows limpo, resolução de todas as bibliotecas no runtime
-de destino, conexões reais Gemini/Spotify, áudio, automação web, desinstalação,
-upgrade transacional, assinatura digital e auditoria completa de segredos no
-conteúdo/histórico do repositório. Este é um Setup de testes, não uma certificação
-de prontidão para distribuição pública.
+O instalador agora registra a saída sanitizada de cada etapa em
+`data_root()/logs/setup-install.log`. Após uma falha, há um botão para abrir esse
+registro. Uma falha de backend não é mais apresentada como problema de conexão.
+
+## Verificação real realizada
+
+- Erro original reproduzido com o mesmo runtime privado da prévia.
+- PyAutoGUI e suas dependências de fonte preparadas e instaladas com a correção.
+- PyAutoGUI recompilado novamente com cache desabilitado, evitando falso sucesso por wheel já existente.
+- Todos os requisitos do projeto instalados com sucesso no runtime privado Python 3.13.
+- Imports reais de NumPy, sounddevice, Spotify, FastAPI, PyAutoGUI, QtWidgets e Gemini passaram.
+- Sem início do assistente, captura de áudio ou acesso a contas/credenciais reais.
+
+O Setup corrigido abriu em modo de teste, verificou os 94 arquivos embutidos
+e passou pelos 108 testes locais. Esses checks foram executados por
+`installer/verify_build.ps1`. O SHA-256 do Setup acompanha o binário gerado.
+
+## Limites
+
+Essa validação foi feita em um runtime isolado neste computador, não em uma VM
+Windows limpa. Conexões reais Gemini/Spotify, automação web, desinstalação,
+assinatura digital e auditoria completa do histórico continuam fora da verificação.
+As prévias usam dados fictícios. A atualização automática permanece adiada;
+o aviso de versão abre a página do release em Sinisterzs/Ultron.

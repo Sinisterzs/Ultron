@@ -12,7 +12,12 @@ em `%LOCALAPPDATA%/ULTRON`. Não muda PATH, associações de Python ou a instala
 Python de outro projeto. O atalho fica no menu Iniciar.
 
 O runtime e o bootstrap pip usam URLs HTTPS e SHA-256 fixos em `runtime.json`.
-As fontes são verificadas contra o manifesto embutido. A instalação das bibliotecas
+As fontes são verificadas contra o manifesto embutido. Antes das bibliotecas, o
+Setup prepara setuptools/wheel no runtime privado. Os pacotes de fonte usam
+`--no-build-isolation`, pois o Python embeddable ignora os caminhos temporários
+de build que o pip normalmente utiliza. Isso corrige a falha de PyAutoGUI com
+`Cannot import setuptools.build_meta`. Saídas sanitizadas das etapas ficam em
+`data_root()/logs/setup-install.log`, acessível pelo botão de registro após falha. A instalação das bibliotecas
 usa `requirements.txt` e o índice PyPI, no runtime privado. Cancelamento, falha de
 rede ou erro de integridade não avançam para salvar as credenciais. Uma instalação
 incompleta pode deixar arquivos temporários/componentes para uma nova tentativa.
