@@ -1,0 +1,56 @@
+name: Windows online setup
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      - name: Prepare minimal build tools
+        run: python -m pip install "pyinstaller>=6,<7" "PyQt6>=6.6,<7"
+      - name: Configure repository and release identity
+        shell: pwsh
+        env:
+          BUILD_REF: ${{ github.ref_name }}
+        run: |
+          $version = (Get-Content release_config.json | ConvertFrom-Json).version
+          if ($env:GITHUB_REF_TYPE -eq 'tag') { $version = $env:BUILD_REF }
+          python installer/configure_release.py --repository "$env:GITHUB_REPOSITORY" --version "$version"
+      - name: Build single setup
+        shell: pwsh
+        run: ./installer/build-online.ps1
+      - uses: actions/upload-artifact@v6
+        with:
+          name: ULTRON-Windows-Setup
+          path: |
+            dist/ULTRON-Setup.exe
+            dist/ULTRON-Setup.exe.sha256
+          if-no-files-found: error
+      - name: Create draft release for manual review
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          gh release view "$env:RELEASE_TAG" --json tagName 2>$null
+          if ($LASTEXITCODE -eq 0) {
+            Write-Output 'Release already exists; retaining its reviewed assets.'
+          } else {
+            gh release create "$env:RELEASE_TAG" dist/ULTRON-Setup.exe dist/ULTRON-Setup.exe.sha256 --draft --verify-tag --title "ULTRON $env:RELEASE_TAG" --generate-notes
+            if ($LASTEXITCODE -ne 0) { throw 'Could not create draft release.' }
+          }

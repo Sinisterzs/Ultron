@@ -1,0 +1,288 @@
+# Contexto do projeto para agentes de IA — MARK LVI / ULTRON
+
+Referência inicial para entender e alterar este repositório. Conferido por leitura
+do código em **29/10/2026**. Este documento não comprova funcionamento de serviços
+externos nem substitui a leitura dos arquivos envolvidos na alteração.
+
+## 1. O que o aplicativo faz
+
+É um assistente pessoal desktop em Python, com interface holográfica PyQt6.
+O código e o README usam os nomes MARK LVI, JARVIS e ULTRON; a interface atual
+exibe ULTRON. Não confundir diferenças de nome com aplicativos separados.
+
+As funcionalidades implementadas incluem:
+
+- Conversação por voz com Gemini Live, captura/reprodução de áudio, transcrições,
+  interrupções, sincronização visual da fala e proteção contra eco da própria voz.
+- Alternativa configurável com reconhecimento de fala, LLM e síntese de voz em
+  componentes separados, inclusive modelos locais e APIs compatíveis com OpenAI.
+- Interface animada, cristal/avatar, temas, navegação, métricas de hardware,
+  entrada de texto, seleção de áudio e painéis de configurações.
+- Push-to-talk, wake word opcional e detector de palmas.
+- Memória persistente, resumo de sessão, briefing e monitoramento de assuntos.
+- Ações de desktop, arquivos, navegador, busca, clima, vídeo, mensagens e outras
+  integrações, expostas ao modelo por ferramentas descobertas em tempo de execução.
+- Dashboard remoto FastAPI com páginas estáticas, autenticação e pareamento.
+
+Uma funcionalidade estar no código não significa que esteja habilitada ou
+disponível: depende de configurações, credenciais, bibliotecas, hardware,
+permissões e serviços externos. O projeto não é inteiramente offline.
+
+## 2. Ambiente e execução
+
+- O projeto é Python desktop, não um frontend Node/React. Não há build npm.
+- `setup.py` é um script de instalação, não uma declaração setuptools de pacote.
+- O instalador exige Python 3.11 e declara 3.13 como maior versão testada.
+  Use um interpretador compatível; isso não garante toda combinação de dependências.
+- A máquina desta inspeção é Windows; há caminhos específicos para Windows,
+  macOS e Linux. Não remover as condições de plataforma.
+- A worktree do instalador não copia `.venv/`. Criar um ambiente próprio ou indicar
+  explicitamente um interpretador preparado. Na primeira validação foi usado,
+  sem instalar nada nele, o ambiente da cópia original.
+
+Comandos a partir da raiz, no PowerShell:
+
+```powershell
+# Exemplos depois de preparar um ambiente próprio nesta worktree.
+.\.venv\Scripts\python.exe --version
+
+# Iniciar a interface pelo launcher atual.
+.\.venv\Scripts\python.exe launcher.py
+
+# Iniciar diretamente a aplicação principal.
+.\.venv\Scripts\python.exe main.py
+```
+
+Em uma instalação nova, `python setup.py` instala dependências e componentes do
+Playwright. Alternativa manual: `python -m pip install -r requirements.txt` e
+`python -m playwright install chromium`. Instalação baixa arquivos e altera o
+ambiente; não é uma verificação somente de leitura.
+
+Executar a aplicação pode conectar serviços, capturar áudio e gravar configurações.
+Não usar inicialização real como se fosse um teste unitário sem efeitos.
+
+## 3. Pontos de entrada e mapa do código
+
+| Arquivo ou área | Responsabilidade |
+|---|---|
+| `launcher.py` | Janela de inicialização; cria processo separado para `main.py` e acompanha estado real do boot. |
+| `ultron_entry.py` | Entrada empacotável: sem argumentos abre launcher; `--app` inicia o principal; `--preview-setup` abre somente a prévia do wizard. |
+| `ui_setup.py` | Wizard de primeira configuração; emite dados apenas ao concluir, sem iniciar voz por si só. |
+| `core/app_paths.py`, `core/config_store.py` | Recursos/dados separados e armazenamento atômico de configuração com credenciais protegidas. |
+| `installer/` | Spec PyInstaller, script de build, configuração Inno Setup e documentação do rascunho. |
+| `bootstrap_entry.py`, `installer/Bootstrap.spec` | Setup online único: interface própria e runtime privado com bibliotecas baixadas na preparação final. |
+| `core/install_manager.py`, `core/runtime_lock.py` | Download verificado, instalação no runtime privado e bloqueio para não sobrescrever a aplicação em execução. |
+| `core/updates.py`, `ui_updates.py`, `release_config.json` | Consulta opcional de releases públicos e aviso discreto; sem instalação automática de atualização. |
+| `main.py` | `main()` e `JarvisLive`: áudio, sessão, ferramentas, integração com UI, reconexão e encerramento. |
+| `ui.py` | `JarvisUI`, `MainWindow`, `HudCanvas`, overlays, dispositivos, configurações e renderização. |
+| `ui_sidebar.py` | Navegação/dock; animações, cache e diagnósticos próprios. |
+| `ui_titlebar.py`, `ui_theme.py`, `ui_activity.py` | Barra de título, tema e painel de atividades. |
+| `core/crystal_pulse.py` | `HoloCrystal` e visual do cristal. |
+| `crystal_pulse.py` | Reexporta `HoloCrystal` e `SPAN`; há caminho alternativo de importação na UI. |
+| `core/avatar.py`, `avatar_mesh.py`, `eye.py`, `orb.py`, `viseme.py` | Outros componentes visuais, geometria e articulação da fala. |
+| `core/gemini.py`, `core/prompt.txt` | Seleção/fallback de modelos Gemini e template de prompt. |
+| `core/action_loader.py`, `core/plugin_loader.py` | Descoberta, validação e despacho de ferramentas. |
+| `core/lazyimport.py` | Importação adiada de bibliotecas para reduzir custo de inicialização. |
+| `core/outcome.py`, `confirm.py`, `undo.py` | Resultado verificável, confirmação humana e desfazer. |
+| `core/audio_devices.py`, `echo.py`, `hotkey.py`, `wake_word.py`, `clap_wake.py` | Áudio, eco, atalhos globais e ativação. |
+| `actions/` | Ferramentas incorporadas: sistema, arquivos, navegador, busca, mensagens, mídia etc. |
+| `plugins/` | Plugins descobertos dinamicamente; existem Spotify e um template nesta cópia. |
+| `providers/` | Contratos e implementações configuráveis de STT/LLM/TTS/engine. |
+| `memory/config_manager.py` | Leitura/escrita de configurações, inclusive providers. |
+| `memory/memory_manager.py` | Memória persistente, busca e resumos. |
+| `dashboard/server.py`, `dashboard/static/` | Servidor remoto e arquivos HTML/JavaScript servidos por ele. |
+| `core/whatsapp_web.py`, `whatsapp_desktop.py`, `whatsapp_driver.py` | Automação WhatsApp e contrato do driver. |
+| `tests/`, `tools/`, `docs/whatsapp-validation.md` | Testes e ferramentas/documentação de validação WhatsApp. |
+| `prototypes/` | Experimentos e validações separados; não são a aplicação principal. |
+
+Os caminhos de `core/` abreviados na tabela pertencem a essa mesma pasta.
+As variantes antigas de launcher da cópia de desenvolvimento não integram esta
+publicação. Use `ultron_entry.py` ou `launcher.py` como entrada.
+
+## 4. Fluxo de inicialização e concorrência
+
+1. No código-fonte, `launcher.py` inicia `main.py` pelo mesmo `sys.executable`.
+   No pacote, inicia `ULTRON.exe --app` em outro processo, preservando o launcher.
+2. O launcher passa `MARK_LVI_BOOT_STATUS`, apontando para um JSON temporário.
+   `main.py` publica fases reais; `hud_shown` indica que a janela foi exibida,
+   não que todos os serviços de voz já estão conectados.
+3. `main()` constrói `JarvisUI`; a UI permanece na thread do Qt.
+4. Uma thread `MarkLVI-Async` executa o loop asyncio da sessão. A inicialização
+   respeita o estado de prontidão da configuração da UI.
+5. O fechamento coordena cancelamento, serviços e término do worker antes de
+   liberar a janela; preservar essa sequência ao mudar boot ou shutdown.
+
+Não criar outro `QApplication` nem outro loop Qt no fluxo principal. Atualizações
+de widgets devem passar pelo mecanismo de sinais/slots ou despacho da UI;
+workers não devem modificar widgets diretamente. Não colocar rede, instalação,
+model loading ou espera bloqueante na thread da interface.
+
+`HudCanvas` possui pacing/timer compartilhado e sinal `pacedFrame`. Antes de
+introduzir outra animação, verificar como a atual compartilha a cadência e evita
+repaint excessivo. Não adicionar timers concorrentes por conveniência.
+
+No Windows, `main.py` também adapta `subprocess.Popen` para evitar janelas de
+console. Uma mudança em subprocessos deve considerar esse comportamento global.
+
+## 5. Ferramentas, plugins e providers: contratos importantes
+
+- O carregador executa módulos de `actions/*.py` e descobre suas declarações
+  `TOOL`; o fluxo não depende apenas de imports explícitos em `main.py`.
+- Uma ação declara nome, descrição, parâmetros e handler. Inspecionar o loader
+  e uma ação semelhante antes de criar outra; parâmetros de contexto são
+  encaminhados conforme a assinatura aceita pelo handler.
+- Plugins seguem o contrato de `core/plugin_loader.py` e a configuração de
+  habilitação. Usar `plugins/_template.py` como referência, verificando o loader.
+- Preservar `core.lazyimport` e imports locais de dependências pesadas. Descobrir
+  uma ferramenta não deve carregar antecipadamente todas as bibliotecas externas.
+- Metadados internos como `tier` e `brief` são retirados por `strip_meta()` antes
+  de enviar declarações à API. Não encaminhar campos internos ao Gemini.
+- `providers/registry.py` usa uma lista explícita `_MODULES`, por categoria;
+  adicionar só um arquivo nessa pasta não garante descoberta do provider.
+- Providers declaram `PROVIDER`; os contratos estão em `providers/base.py`.
+  Os novos engines se adaptam aos eventos e métodos esperados pela sessão
+  existente; não pressupor que mudar o engine autoriza reescrever toda a sessão.
+- O caminho padrão Gemini evita carregar providers desnecessariamente. Preservar
+  a inicialização adiada e as capacidades declaradas, inclusive suporte a visão.
+- `core/outcome.py` diferencia `done`, `unverified`, `failed` e `ask`. Uma chamada
+  aceita ou um clique tentado não comprovam sucesso. Relatar evidência real.
+- Preservar a confirmação humana de `core/confirm.py`, os recursos de undo e as
+  verificações/deduplicação de mensagens; não simular confirmação pelo modelo.
+
+## 6. Bibliotecas e nomes de importação
+
+`requirements.txt` é a referência de instalação e dos limites de versão. A lista
+abaixo mapeia os pacotes declarados para seus imports usuais. Nem todo extra
+declarado tem plugin correspondente presente nesta cópia.
+
+| Área | Distribuição pip → import |
+|---|---|
+| UI e áudio | `PyQt6` → `PyQt6`; `sounddevice` → `sounddevice`; `numpy` → `numpy` |
+| Gemini e HTTP | `google-genai` → `google.genai`; `httpx` → `httpx`; `requests` → `requests` |
+| Busca e páginas | `beautifulsoup4` → `bs4`; `ddgs` → `ddgs`; `playwright` → `playwright` |
+| Automação | `pyautogui` → `pyautogui`; `pyperclip` → `pyperclip`; `pygetwindow` → `pygetwindow` |
+| Imagem e captura | `pillow` → `PIL`; `opencv-python` → `cv2`; `mss` → `mss` |
+| Sistema | `psutil` → `psutil`; `send2trash` → `send2trash`; `pynvml` → `pynvml` |
+| Documentos | `python-pptx` → `pptx`; `python-docx` → `docx`; `pdfplumber` → `pdfplumber`; `PyPDF2` → `PyPDF2` |
+| Dashboard | `fastapi` → `fastapi`; `uvicorn[standard]` → `uvicorn`; `cryptography` → `cryptography`; `python-multipart` para formulários; `qrcode[pil]` → `qrcode` |
+| Vídeo | `yt-dlp` → `yt_dlp`; `youtube-transcript-api` → `youtube_transcript_api` |
+| Extras declarados | `google-api-python-client` → `googleapiclient`; `google-auth-oauthlib` → `google_auth_oauthlib`; `tinytuya` → `tinytuya`; `paho-mqtt` → `paho.mqtt`; `openpyxl` → `openpyxl`; `spotipy` → `spotipy` |
+| Windows | `comtypes` → `comtypes`; `pycaw` → `pycaw`; `win10toast` → `win10toast`; `pywin32` fornece `win32com` e outros módulos Win32; `wmi` → `wmi`; `pywinauto` → `pywinauto` |
+
+Os pacotes exclusivos de Windows têm marcadores `sys_platform == "win32"` no
+requirements. QtMultimedia/QtMultimediaWidgets fazem parte do ecossistema PyQt6;
+não migrar a aplicação para PySide6 por causa de arquivos de experimentos.
+Playwright precisa de seus navegadores além do pacote Python. `yt-dlp` está
+intencionalmente sem limite de versão no requirements por mudanças do YouTube.
+
+### Opcionais, fallbacks e código de caminhos antigos
+
+- `faster-whisper` / `faster_whisper`: reconhecimento local; modelos são downloads.
+- `piper-tts` / `piper`: voz neural local; vozes também precisam estar disponíveis.
+- `openwakeword` / `openwakeword`: wake word e respectivos modelos, opt-in.
+- `pandas`, `pydub` e `mediapipe`: extras citados no requirements, não instalados
+  pela lista principal; pydub pode depender do executável ffmpeg.
+- `av` (PyAV): fallback de decodificação MP3 no provider ElevenLabs, não garantido
+  pelo requirements. Não confundir com a negociação de áudio PCM desse provider.
+- Busca possui fallback que tenta o nome antigo `duckduckgo_search`.
+- Existem `core/stt.py`, `core/tts.py`, `core/llm_client.py` e `core/installer.py`
+  com comentários de versões antigas MARK XL. Seus imports opcionais incluem
+  `vosk`, `torch`, `edge_tts` (pip `edge-tts`), `kokoro`, `miniaudio` e `soundfile`.
+  Isso não significa que sejam usados no fluxo Gemini atual.
+- `core/installer.py` contém instalação condicional desses motores antigos;
+  `core/tts.py` também contém lógica de compatibilidade/upgrade Kokoro. Não chamar
+  esses caminhos durante uma simples inspeção de imports.
+
+Biblioteca padrão usada amplamente: `asyncio`, `threading`, `queue`, `subprocess`,
+`pathlib`, `json`, `time`, `datetime`, `os`, `sys`, `platform`, `math`, `re`,
+`importlib`, `inspect`, `dataclasses`, `typing`, `unittest` etc. Esses nomes não
+devem virar dependências pip. Imports dentro de funções e imports dinâmicos também
+contam; varredura estática não prova quais pacotes estão instalados ou ativos.
+
+## 7. Dados, caminhos e assets
+
+- Configuração central: `data_root()/config/api_keys.json`, via
+  `core/config_store.py` e `memory/config_manager.py`. No Windows, `data_root()`
+  é `%LOCALAPPDATA%/ULTRON`; testes podem definir `ULTRON_DATA_DIR` absoluto.
+  O arquivo contém preferências e referências para um bloco de credenciais
+  protegido com DPAPI do usuário. Nunca fazer `json.load`/`write_text` diretamente
+  para acessar ou salvar configurações: usar `load_config`/`save_config`.
+  Preservar campos existentes ao salvar. Não há fallback de segredos em texto simples.
+- Memória pessoal: `data_root()/memory/long_term.json`, via `memory/memory_manager.py`.
+- Spotify sem Client Secret usa PKCE. Tokens são salvos como `oauth_cache`
+  protegido na configuração, sem arquivo de cache OAuth em texto simples.
+- Certificados e perfil de navegador WhatsApp podem existir em `config/certs/`
+  e `config/whatsapp_web/`; não são arquivos descartáveis de exemplo.
+- Não incluir chaves, tokens, perfis de navegador ou memória pessoal em commits,
+  logs, relatórios e testes. `.gitignore` documenta esses dados locais.
+- Recursos instalados usam `resource_root()` ou caminhos relativos a `__file__`;
+  dados graváveis usam `data_root()`. Preservar a separação no modo `sys.frozen`.
+- `core/face_model.obj`, `config/jarvis.ico` e `dashboard/static/*` são assets;
+  ausência de import Python não indica ausência de uso.
+- `main.py` passa a string `face.png` para `JarvisUI`; esse arquivo não está na
+  raiz desta inspeção. Verificar o consumidor e seus fallbacks antes de concluir
+  que seja necessário baixar ou criar uma imagem.
+- Logs e diagnósticos podem ser recriados. A UI atual escreve medições próprias
+  em `data_root()/logs/d24_18_cached_dock_diagnostics.csv`; não confundir isso com os antigos
+  protótipos D24 removidos.
+
+## 8. Validação adequada e limites
+
+Não importar `main`, `ui` ou executar `setup.py` só para testar sintaxe. Para
+verificação estática sem importar a aplicação, usar `ast.parse` nos arquivos
+alterados. `py_compile` também verifica sintaxe, mas cria bytecode em disco.
+
+Testes WhatsApp existentes:
+
+```powershell
+.\.venv\Scripts\python.exe -m unittest discover -s tests -p "test_whatsapp_desktop.py" -v
+.\.venv\Scripts\python.exe -m unittest discover -s tests -p "test_whatsapp_web.py" -v
+```
+
+Esses testes exercitam os caminhos com mocks; não comprovam envio real ou
+compatibilidade com toda versão do WhatsApp. A validação manual está em
+`docs/whatsapp-validation.md`. Não fazer envio real como efeito colateral de teste.
+
+Existe `providers/_tests.py`, com runner próprio; ler os testes e seus requisitos
+antes de executá-lo. Não pressupor que `pytest` ou um comando de build genérico
+estejam configurados para todo o repositório.
+
+O rascunho do instalador tem testes adicionais em
+`tests/test_installation_foundation.py` (dados fictícios, mocks e Qt offscreen).
+`tools/render_setup_preview.py` gera imagens sem importar `main.py` ou `ui.py`
+e sem salvar configuração. O baseline empacotado ainda não inclui motores locais
+opcionais; não executar pip usando o executável congelado. Ver `installer/README.md`
+para limitações, build e validações ainda pendentes.
+
+O Setup online usa `installer/Bootstrap.spec` e `installer/build-online.ps1`.
+Seu Python privado permite instalar bibliotecas; isso não autoriza executar
+`ULTRON-Setup.exe -m pip`. Manter o payload por allowlist e hashes. Não publicar
+nem ligar consultas a um GitHub upstream presumido: configurar o repositório
+do proprietário em `release_config.json`. O workflow produz rascunho de release.
+O cartão de atualização não pode tomar foco, bloquear a UI, baixar ou executar
+atualizações automaticamente. O usuário prefere preto puro e destaques vermelhos.
+
+Mudanças visuais precisam de inspeção da UI; testes estáticos não comprovam
+renderização, FPS, foco ou fluidez. Mudanças de áudio precisam de validação com
+dispositivo e engine selecionados. Declarar o que foi realmente testado.
+
+## 9. Estado local e limpeza já realizada
+
+Esta cópia contém alterações locais de funcionalidades e interface; não é uma
+cópia intacta do upstream. Antes de editar, conferir `git status` e `git diff`,
+preservando alterações existentes que não pertencem à tarefa.
+
+Por solicitação do usuário foram removidos backups aninhados/avulsos, `j.py`,
+`prototypes.zip`, protótipos D18/D24 da raiz, o launcher demonstrativo D20O.1,
+`test_crystal_standalone.py`, `test_d16_integration.py` e resultados antigos de
+diagnósticos. Não recriar esses arquivos nem usá-los como dependências presumidas.
+A pasta `prototypes/` permaneceu e ainda tem experimentos e assets próprios.
+
+Antes de uma implementação: ler este contexto, os arquivos envolvidos, seus
+chamadores e contratos; confirmar nomes reais e disponibilidade das dependências;
+fazer a menor alteração coerente; validar os caminhos afetados. Não inferir
+inutilidade de arquivo somente pela ausência de import explícito.
+
+Atualizar este documento quando arquitetura, dependências ou pontos de entrada
+mudarem. `requirements.txt` e o código atual têm precedência factual sobre esta
+fotografia do projeto.
