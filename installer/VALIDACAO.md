@@ -45,3 +45,19 @@ do Windows. Isso evita que o processo independente retenha recursos do Setup.
 Dois testes novos verificam o ambiente do filho e a restauração após falha.
 A suíte agora tem 110 testes. A reprodução no PC do destinatário ainda precisa
 ser confirmada; não se deve atribuir todo bloqueio de arquivo à mesma causa.
+
+
+## Navegação — 30/10/2026 (0.1.0)
+
+Ajustes recursava porque o clique de compatibilidade chamava request_page(),
+que reenviava o mesmo clique. As páginas agora emitem somente pageRequested.
+Controles agora deixa o botão checkable alternar o próprio estado, sem selecionar
+antes do clique, e o painel usa a posição real da célula no dock inferior.
+A navegação para outra página fecha o painel de controles.
+
+Três regressões exercitam cliques Qt offscreen: Ajustes sem recursão, Controles
+abrindo/fechando e geometria em três tamanhos. O método real de posicionamento é
+extraído por AST sem importar a aplicação principal. Inspeção visual usa um painel
+representativo: não comprova todos os controles reais nem serviços de voz.
+A suíte total tem 113 testes. Publicação normal solicitada pelo proprietário;
+a validação completa em Windows limpo continua pendente.

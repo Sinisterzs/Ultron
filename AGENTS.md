@@ -289,3 +289,12 @@ inutilidade de arquivo somente pela ausência de import explícito.
 Atualizar este documento quando arquitetura, dependências ou pontos de entrada
 mudarem. `requirements.txt` e o código atual têm precedência factual sobre esta
 fotografia do projeto.
+
+
+### Navegação do dock inferior
+
+`BottomNavBar` emite `pageRequested` para páginas; não reenviar o clique oculto
+nessa rota, pois Ajustes pode chamar `request_page` e causar recursão. Controles
+usa o clique checkable sem pré-seleção; popups usam `popup_anchor` da célula
+pintada e devem ficar acima do dock, dentro da janela. Os testes offscreen em
+`tests/test_bottom_navigation.py` cobrem esses contratos sem iniciar o app.

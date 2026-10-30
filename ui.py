@@ -5282,6 +5282,7 @@ class MainWindow(QMainWindow):
         # The home/background can now continue behind its transparent margins.
         self._bottom_nav.raise_()
         QTimer.singleShot(0, self._position_bottom_nav)
+        self._bottom_nav.pageRequested.connect(lambda name: self._close_controls())
         self._bottom_nav.pageRequested.connect(
             lambda name: self._pages.setCurrentIndex(BottomNavBar.PAGES.index(name)))
         self._pages.currentChanged.connect(
@@ -7048,6 +7049,15 @@ class MainWindow(QMainWindow):
         _W = 220
         drawer.setFixedWidth(_W)
         drawer.adjustSize()
+        if hasattr(self, "_bottom_nav"):
+            parent = drawer.parentWidget() or self
+            name = "Controles" if drawer is self._ctrl_drawer else "Ajustes"
+            point = self._bottom_nav.popup_anchor(name, parent)
+            height = min(drawer.sizeHint().height(), max(1, point.y() - 16))
+            left = max(8, min(point.x() - _W // 2, parent.width() - _W - 8))
+            top = max(8, point.y() - height - 8)
+            drawer.setGeometry(left, top, _W, height)
+            return
         if hasattr(self, "_side_rail"):
             parent = drawer.parentWidget() or self
             anchor = (self._ctrl_btn if drawer is self._ctrl_drawer

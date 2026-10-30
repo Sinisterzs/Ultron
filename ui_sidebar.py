@@ -917,10 +917,15 @@ class BottomNavBar(QWidget):
     def _on_choice(self, name):
         if name not in self.buttons:
             return
-        self.set_active(name)
-        self.buttons[name].click()  # compatibility with existing signal connections
         if name in self.PAGES:
+            # Page navigation must not re-emit the hidden compatibility click:
+            # Ajustes' handler calls request_page(), which would recurse here.
+            self.set_active(name)
             self.pageRequested.emit(name)
+        else:
+            # Let the checkable control toggle itself. Preselecting it would
+            # cause click() to uncheck it before the drawer handler runs.
+            self.buttons[name].click()
         self._log_sample('click:' + name)
 
     def request_page(self, page):
@@ -934,6 +939,15 @@ class BottomNavBar(QWidget):
             self._view.item.selected = PAGES.index(page)
             self._view.item._labels_pixmap = None
             self._view.item.update()
+
+    def popup_anchor(self, name, parent):
+        """Map the painted dock cell to a widget coordinate for popups."""
+        index = PAGES.index(name)
+        cell = self._view.item.hit_areas[index].boundingRect()
+        point = QPointF(cell.center().x(), cell.top())
+        scene_point = self._view.item.mapToScene(point)
+        viewport_point = self._view.mapFromScene(scene_point)
+        return self._view.viewport().mapTo(parent, viewport_point)
 
     def update_viewport_width(self, width):
         width = max(1, int(width))
