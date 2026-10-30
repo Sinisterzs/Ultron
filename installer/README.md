@@ -43,6 +43,16 @@ Saída: `dist/ULTRON-Setup.exe` e seu arquivo SHA-256. O build não instala o
 aplicativo no perfil do desenvolvedor. `.build-tools/`, quando existe, é usada
 apenas para ferramentas locais desta worktree.
 
+O build prepara primeiro `dist/ULTRON.exe`, um launcher pequeno e independente
+com o ícone do aplicativo (`config/jarvis.ico`). Esse arquivo é incluído e
+verificado por hash no Setup, cujo ícone é `config/setup.ico`. A atualização
+preserva o launcher preparado, sem substituí-lo pelo próprio Setup. O download
+para o usuário continua sendo um único `ULTRON-Setup.exe`.
+
+O workflow compara os recursos de ícone dos dois executáveis e executa o Setup
+em modo de smoke test offscreen, com diretórios fictícios e sem instalação,
+credenciais, voz ou rede, antes de criar o rascunho de release.
+
 ## Aviso discreto de atualização
 
 `release_config.json` contém versão e `github_repository` no formato `usuario/repo`.

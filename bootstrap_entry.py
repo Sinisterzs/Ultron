@@ -1,4 +1,4 @@
-"""Single-file online installer and installed launcher shim (Windows x64)."""
+"""Single-file online installer; older installed launcher mode stays supported."""
 from __future__ import annotations
 
 import json
@@ -9,43 +9,7 @@ import sys
 from pathlib import Path
 
 
-def launch_installed(root):
-    root = Path(root)
-    python = root / "runtime/pythonw.exe"
-    script = root / "app/ultron_entry.py"
-    if not python.is_file() or not script.is_file():
-        raise RuntimeError("A instalação está incompleta. Execute o Setup novamente.")
-    from core.app_paths import data_root
-    env = os.environ.copy()
-    env.pop("PYTHONPATH", None); env.pop("PYTHONHOME", None)
-    # The installed runtime must not load Qt plugins/DLLs from this onefile
-    # setup's temporary directory, which disappears when the setup exits.
-    for name in ("QT_PLUGIN_PATH", "QT_QPA_PLATFORM_PLUGIN_PATH", "QML2_IMPORT_PATH"):
-        env.pop(name, None)
-    bundle = getattr(sys, "_MEIPASS", None)
-    if bundle:
-        prefix = os.path.normcase(os.path.abspath(bundle))
-        env["PATH"] = os.pathsep.join(part for part in env.get("PATH", "").split(os.pathsep)
-            if not (os.path.normcase(os.path.abspath(part)) == prefix or
-                    os.path.normcase(os.path.abspath(part)).startswith(prefix + os.sep)))
-    env["PLAYWRIGHT_BROWSERS_PATH"] = str(data_root() / "browsers")
-    # PyInstaller modifies the Windows DLL search path; children inherit it.
-    # Restore it immediately after spawning so the setup can continue using Qt.
-    if os.name == "nt" and bundle:
-        import ctypes
-        set_directory = ctypes.windll.kernel32.SetDllDirectoryW
-        set_directory.argtypes = [ctypes.c_wchar_p]
-        set_directory.restype = ctypes.c_int
-        if not set_directory(None):
-            raise ctypes.WinError()
-        try:
-            subprocess.Popen([str(python), str(script)], cwd=root / "app", env=env,
-                             close_fds=True, creationflags=subprocess.CREATE_NO_WINDOW)
-        finally:
-            set_directory(str(bundle))
-    else:
-        subprocess.Popen([str(python), str(script)], cwd=root / "app", env=env,
-                         close_fds=True, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+from core.installed_launcher import launch_installed
 
 
 def main():
@@ -69,6 +33,8 @@ def main():
 
     app = QApplication(sys.argv)
     app.setStyle("Fusion")
+    from core.app_icon import apply_app_icon
+    apply_app_icon(app, setup=True)
     installed = {"root": None, "saved": False}
 
     def prepare(emit, cancel):
@@ -77,14 +43,15 @@ def main():
         root = install_manager.install(emit, cancel, browser=window.browser_requested)
         emit("Preparando o atalho do aplicativo", 0, 0)
         # Different filename lets a downloaded Setup update the installed launcher.
-        if Path(sys.executable).resolve() != (root / "ULTRON.exe").resolve():
+        if not (root / "ULTRON.exe").is_file():
             shutil.copy2(sys.executable, root / "ULTRON.exe")
         programs = Path(os.environ["APPDATA"]) / "Microsoft/Windows/Start Menu/Programs"
         programs.mkdir(parents=True, exist_ok=True)
         escaped = str(root / "ULTRON.exe").replace("'", "''")
         shortcut = str(programs / "ULTRON.lnk").replace("'", "''")
+        icon = str(root / "app/config/jarvis.ico").replace("'", "''")
         command = ("$s=(New-Object -ComObject WScript.Shell).CreateShortcut('" + shortcut + "');"
-                   "$s.TargetPath='" + escaped + "';$s.Save()")
+                   "$s.TargetPath='" + escaped + "';$s.IconLocation='" + icon + ",0';$s.Save()")
         subprocess.run(["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", command],
                        check=True, timeout=15, creationflags=subprocess.CREATE_NO_WINDOW,
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -131,6 +98,8 @@ def smoke_test(output):
     from core.app_paths import resource_root, config_path
     from ui_setup import SetupOverlay
     app = QApplication([])
+    from core.app_icon import apply_app_icon
+    assert apply_app_icon(app, setup=True)
     (output / "stage.txt").write_text("Qt application created", encoding="utf-8")
     fonts = Path(os.environ.get("WINDIR", "C:/Windows")) / "Fonts"
     for name in ["segoeui.ttf", "segoeuib.ttf", "seguisb.ttf", "seguisym.ttf"]:
@@ -145,6 +114,8 @@ def smoke_test(output):
         raise RuntimeError("Cannot save setup preview")
     payload = resource_root() / "payload"
     manifest = json.loads((payload / "manifest.json").read_text())
+    from core.install_manager import verified_launcher
+    assert verified_launcher(payload, manifest) is not None
     for name, digest in manifest["files"].items():
         if hashlib.sha256((payload / "app" / name).read_bytes()).hexdigest() != digest:
             raise RuntimeError("Payload integrity failure")
@@ -180,6 +151,7 @@ def smoke_test(output):
     assert config_path().exists() == before
     (output / "report.json").write_text(json.dumps({"frozen": bool(getattr(sys, "frozen", False)),
         "payload_files_verified": len(manifest["files"]), "configuration_created": False,
+        "separate_launcher_verified": True,
         "network_used": False, "assistant_started": False,
         "update_fixture_swap_verified": True}, indent=2), encoding="utf-8")
     window.close()

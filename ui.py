@@ -510,7 +510,10 @@ class HudCanvas(QWidget):
         # unrelated QWidget update()/expose requests elsewhere in the app.
         self._paint_permit = True
         self._paint_skips = 0
-        self._paint_size = None
+        self._frame_image = None
+        self._frame_key = None
+        from core.hud_diagnostics import HudDiagnostics
+        self._hud_probe = HudDiagnostics(BASE_DIR / "logs" / "hud-frame-diagnostics.csv")
         # D19Y: live FPS target, selectable without restarting the assistant.
         self._fps_target = 47
         self._fps_button = QPushButton("47 FPS  ⇄  60", self)
@@ -563,11 +566,17 @@ class HudCanvas(QWidget):
             remaining_ms = (self._fps_next_deadline - now) * 1000.0
             self._tmr.start(max(1, math.ceil(remaining_ms)))
             return
+        lateness_ms = max(0.0, now - self._fps_next_deadline) * 1000
+        missed = 0
         self._fps_next_deadline += period
         if self._fps_next_deadline <= now:
             # Never try to catch up missed frames with a burst of paints.
             missed = math.floor((now - self._fps_next_deadline) / period) + 1
             self._fps_next_deadline += missed * period
+        if self._on_screen():
+            self._hud_probe.tick(now, self._fps_target, lateness_ms, missed)
+        else:
+            self._hud_probe.suspend()
         self._step()
         self.pacedFrame.emit(now)  # Dock advances only alongside an authorized HUD tick.
         until_ms = (self._fps_next_deadline - time.perf_counter()) * 1000.0
@@ -957,18 +966,47 @@ class HudCanvas(QWidget):
                        Qt.AlignmentFlag.AlignCenter, name)
 
     def paintEvent(self, _):
-        # D24.16: do not count/render unsolicited paints as animation frames.
-        # A genuine resize/expose changes the backing surface and must repaint.
-        current_size = (self.width(), self.height())
-        if not self._paint_permit and current_size == self._paint_size:
-            self._paint_skips += 1
+        # Every Qt paint request must restore pixels. Only paced requests
+        # generate a new animation frame; hover/expose reuses the last one.
+        paint_start = time.perf_counter()
+        w, h = self.width(), self.height()
+        if w < 1 or h < 1:
             return
-        self._paint_size = current_size
-        self._paint_permit = False
-        _d22g_hud_start = _D22G.hud_start()
+        dpr = self.devicePixelRatioF()
+        key = (w, h, dpr, self.hud_style, C.PRI, C.BG, C.TEXT, C.ACC, C.ACC2)
+        rebuilt = self._frame_image is None or key != self._frame_key
+        fresh = self._paint_permit or rebuilt
+        if fresh:
+            if rebuilt:
+                self._frame_image = QImage(math.ceil(w * dpr), math.ceil(h * dpr),
+                                           QImage.Format.Format_ARGB32_Premultiplied)
+                self._frame_image.setDevicePixelRatio(dpr)
+                self._frame_key = key
+            self._frame_image.fill(Qt.GlobalColor.transparent)
+            start = time.perf_counter()
+            frame_painter = QPainter(self._frame_image)
+            try:
+                self._paint_frame(frame_painter)
+            finally:
+                frame_painter.end()
+            self._paint_permit = False
+            self._hud_probe.frame(start, self._fps_target,
+                                  (time.perf_counter() - start) * 1000,
+                                  rebuilt, self._frame_image.sizeInBytes())
+        else:
+            self._paint_skips += 1  # reused frames, never skipped restoration
+        start = time.perf_counter()
         p = QPainter(self)
-        if not p.isActive():      # device not ready (e.g. 0-size during layout) — skip cleanly
-            return
+        # Retained parent pixels must not cover the live FPS child control.
+        p.setClipRegion(self.visibleRegion().subtracted(self.childrenRegion()))
+        p.drawImage(QPointF(0, 0), self._frame_image)
+        p.end()
+        end = time.perf_counter()
+        self._hud_probe.blit(self._fps_target, (end - start) * 1000, not fresh,
+                             (end - paint_start) * 1000)
+
+    def _paint_frame(self, p):
+        _d22g_hud_start = _D22G.hud_start()
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         # Do not fill the background — the void (#000000) from the parent
         # shows through so the Crystal appears to float in empty space.
@@ -1142,7 +1180,6 @@ class HudCanvas(QWidget):
                    f"HUD {self._fps_reading:.1f}/{self._fps_target} FPS" if self._fps_reading else f"HUD --/{self._fps_target} FPS")
         p.restore()
 
-        p.end()   # end deterministically so the backing store never flushes an active painter
         _D22G.hud_draw_ns.append((time.perf_counter_ns()-_d22g_hud_start)/1_000_000)
 
 class MetricBar(QWidget):
@@ -1209,6 +1246,8 @@ class MetricBar(QWidget):
 class LogWidget(QTextEdit):
     _sig = pyqtSignal(str)
     entry_completed = pyqtSignal(str, str, str)
+    entry_started = pyqtSignal(str, str)
+    entry_progress = pyqtSignal(str, str, bool)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -1296,6 +1335,7 @@ class LogWidget(QTextEdit):
         elif tl.startswith("file:"):                             self._tag = "file"
         elif "err" in tl:                                        self._tag = "err"
         else:                                                    self._tag = "sys"
+        self.entry_started.emit(self._text, self._entry_category)
 
     def _step(self, now=None):
         now = time.perf_counter() if now is None else now
@@ -1340,6 +1380,7 @@ class LogWidget(QTextEdit):
         self.setTextCursor(cur)
         self.ensureCursorVisible()
         self._pos = target
+        self.entry_progress.emit(self._text[:target], self._entry_category, finished)
         if finished:
             from PyQt6.QtGui import QTextDocumentFragment
             html = QTextDocumentFragment(self._entry_document).toHtml()
@@ -4666,9 +4707,15 @@ class PerspectiveSideView(QGraphicsView):
         self._panel = panel
         self._proxy = QGraphicsProxyWidget()
         self._proxy.setWidget(panel)
+        # Qt retains widget pixels and repaints native dirty regions even when
+        # a projective transform expands scene damage to the entire proxy.
+        self._proxy.setCacheMode(QGraphicsProxyWidget.CacheMode.ItemCoordinateCache)
         scene.addItem(self._proxy)
         self._depth = 50.0
         self._busy_resize = False
+        self._scene_image = None
+        self._scene_image_key = None
+        scene.changed.connect(self._scene_changed)
         self.setFrameShape(QFrame.Shape.NoFrame)
         self.setStyleSheet("background: transparent; border: none;")
         self.setBackgroundBrush(QColor(0, 0, 0, 0))
@@ -4705,6 +4752,14 @@ class PerspectiveSideView(QGraphicsView):
             for button in self._panel.findChildren(CornerAnchorButton):
                 button._perspective_hover_refresh = self._refresh_hover_frame
 
+    def _scene_changed(self, rects):
+        # Custom scene.render() bypasses QGraphicsView's paint bookkeeping.
+        # Forward damage explicitly so later widget changes keep reaching us.
+        if getattr(self, "_graphics_released", False):
+            return
+        for rect in rects:
+            self.viewport().update(self.mapFromScene(rect).boundingRect().adjusted(-2, -2, 2, 2))
+
     def _refresh_hover_frame(self):
         """Propague frames da animacao para a cena e para a saida supersampled.
 
@@ -4719,7 +4774,7 @@ class PerspectiveSideView(QGraphicsView):
         self.viewport().update()
 
     def paintEvent(self, event):
-        """D18.3B experiment: supersample the *transformed scene*, not widgets.
+        """Supersample the transformed scene, retaining unchanged pixels.
 
         The real QGraphicsProxyWidget stays in the scene for keyboard/mouse input.
         Only the viewport output is rendered at 1.5x, then downsampled once.
@@ -4731,27 +4786,58 @@ class PerspectiveSideView(QGraphicsView):
         if w < 2 or h < 2:
             return
         ratio = 1.5
-        image = QImage(max(1, math.ceil(w * ratio)),
-                       max(1, math.ceil(h * ratio)),
-                       QImage.Format.Format_ARGB32_Premultiplied)
-        image.fill(Qt.GlobalColor.transparent)
-        off = QPainter(image)
-        off.setRenderHints(QPainter.RenderHint.Antialiasing |
-                           QPainter.RenderHint.TextAntialiasing |
-                           QPainter.RenderHint.SmoothPixmapTransform)
-        # Preserve the viewport's current scene-to-view transform. The geometry
-        # currently uses identity view transforms; this also handles future ones.
-        off.scale(image.width() / w, image.height() / h)
-        # Draw through QGraphicsScene at increased resolution. Do not detach,
-        # rasterize, or replace the proxy; Qt still routes input normally.
-        self.scene().render(off, QRectF(0, 0, w, h),
-                            self.mapToScene(self.viewport().rect()).boundingRect(),
-                            Qt.AspectRatioMode.IgnoreAspectRatio)
-        off.end()
+        # QGraphicsView maps proxy/widget damage through the perspective into
+        # viewport coordinates. Keep that damage all the way through the custom
+        # renderer: a partial QWidget update alone used to render the full scene.
+        source = self.mapToScene(vp.rect()).boundingRect()
+        key = (w, h, vp.devicePixelRatioF(), self._proxy.transform(), source)
+        if self._scene_image is None or key != self._scene_image_key:
+            self._scene_image = QImage(max(1, math.ceil(w * ratio)),
+                                       max(1, math.ceil(h * ratio)),
+                                       QImage.Format.Format_ARGB32_Premultiplied)
+            # ItemCoordinateCache uses the paint device's DPR. An explicit
+            # painter scale alone would leave its text cache at 1x resolution.
+            self._scene_image.setDevicePixelRatio(ratio)
+            self._scene_image.fill(Qt.GlobalColor.transparent)
+            self._scene_image_key = key
+            dirty = vp.rect()
+        else:
+            # Include the antialias/downsample fringe at the edge of damage.
+            dirty = event.region().boundingRect().adjusted(-2, -2, 2, 2).intersected(vp.rect())
+        image = self._scene_image
+        self._render_scene_region(image, dirty, source, w, h)
         out = QPainter(vp)
         out.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
         out.drawImage(QRectF(0, 0, w, h), image)
         out.end()
+
+    def _render_scene_region(self, image, dirty, source, w, h):
+        """Refresh a pixel-aligned patch, using the original global mapping."""
+        sx, sy = image.width() / w, image.height() / h
+        pixels = QRectF(dirty.x() * sx, dirty.y() * sy,
+                        dirty.width() * sx, dirty.height() * sy).toAlignedRect()
+        target = QRectF(pixels.x() / sx, pixels.y() / sy,
+                        pixels.width() / sx, pixels.height() / sy)
+        off = QPainter(image)
+        # Erase old glyphs/selection/scroll contents, including transparent areas.
+        # SourceOver alone would leave the previous image behind them.
+        off.setCompositionMode(QPainter.CompositionMode.CompositionMode_Source)
+        dpr = image.devicePixelRatioF()
+        off.fillRect(QRectF(pixels.x() / dpr, pixels.y() / dpr,
+                            pixels.width() / dpr, pixels.height() / dpr),
+                     Qt.GlobalColor.transparent)
+        off.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceOver)
+        off.setRenderHints(QPainter.RenderHint.Antialiasing |
+                           QPainter.RenderHint.TextAntialiasing |
+                           QPainter.RenderHint.SmoothPixmapTransform)
+        off.scale(sx / dpr, sy / dpr)
+        off.setClipRect(target)
+        # Keep the global mapping identical across patches (including rounding
+        # at odd sizes). The item cache handles native widget damage; this clip
+        # limits compositing into the retained output image.
+        self.scene().render(off, QRectF(0, 0, w, h), source,
+                            Qt.AspectRatioMode.IgnoreAspectRatio)
+        off.end()
 
     def _poll_button_hover(self):
         """Use global cursor coordinates; works without Qt hover/move delivery."""
@@ -4850,6 +4936,8 @@ class PerspectiveSideView(QGraphicsView):
         if getattr(self, "_graphics_released", False):
             return
         self._graphics_released = True
+        self._scene_image = None
+        self._scene_image_key = None
         self._busy_resize = True
         self._last_hover_button = None
         self._hover_timer.stop()
@@ -5362,6 +5450,7 @@ class MainWindow(QMainWindow):
 
         # Center column: HUD + resizable content panel via QSplitter
         self.hud = HudCanvas(face_path, _display)
+        self._home_page._d22g_report_timer.timeout.connect(self.hud._hud_probe.flush)
         # D24.17: zero independent dock animation clocks.
         self._bottom_nav.bind_hud_clock(self.hud)
 
@@ -5565,6 +5654,13 @@ class MainWindow(QMainWindow):
         self._log.bind_hud_clock(self.hud)
         self._right_perspective = PerspectiveSideView(self._right_panel, "right")
         body.addWidget(self._right_perspective, stretch=0)
+        from ui_chat import HoloChat
+        self._chat = HoloChat(self._hud_cam_stack, accent=lambda: C.PRI, parent=self._home_page)
+        self._chat.bind_hud_clock(self.hud)
+        self._log.entry_started.connect(self._chat.begin_entry)
+        self._log.entry_progress.connect(self._chat.update_entry)
+        self._hud_cam_stack.currentChanged.connect(self._chat.on_page_changed)
+        self._chat.show()
         home_layout.addLayout(body, stretch=1)
         # Footer removido da composição principal da home (D18.1E):
         # a dock inferior agora é a única peça flutuante nessa região.
@@ -6619,16 +6715,11 @@ class MainWindow(QMainWindow):
             l.setStyleSheet(f"color: {C.TEXT_MED}; background: transparent;")
             return l
 
-        # ── Activity Log ──
-        lay.addWidget(_sec("ACTIVITY LOG"))
-        self._log = LogWidget()
-        self._log.setMinimumHeight(200)
-        log_card = HoloFrame(side="right")
-        log_lay = QVBoxLayout(log_card)
-        log_lay.setContentsMargins(14, 10, 14, 10)
-        log_lay.setSpacing(4)
-        log_lay.addWidget(self._log)
-        lay.addWidget(log_card)
+        # Keep the original typed log as the activity/history source, without
+        # displaying it in the sidebar. The conversation overlay receives only
+        # user/assistant entries; system messages remain on the Activity page.
+        self._log = LogWidget(self)
+        self._log.hide()
 
         # ── File Upload ──
         lay.addWidget(_sec("FILE UPLOAD"))
@@ -8438,7 +8529,10 @@ class JarvisUI:
     def __init__(self, face_path: str, size=None):
         self._app = QApplication.instance() or QApplication(sys.argv)
         self._app.setStyle("Fusion")
+        from core.app_icon import apply_app_icon
+        apply_app_icon(self._app)
         self._win = MainWindow(face_path)
+        self._app.aboutToQuit.connect(self._win.hud._hud_probe.flush)
         self.root = _RootShim(self._app)
         # D20O.2: the external launcher owns the visible startup window.
         # Ordinary `python main.py` keeps the original immediate-show behavior.

@@ -354,6 +354,8 @@ class Launcher(QWidget):
 
 def main():
     app = QApplication(sys.argv)
+    from core.app_icon import apply_app_icon
+    apply_app_icon(app)
     app.setQuitOnLastWindowClosed(True)
     window = Launcher()
     window.show()

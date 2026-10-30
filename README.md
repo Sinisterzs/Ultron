@@ -106,3 +106,8 @@ O modelo de face MediaPipe mantém sua atribuição original, indicada nos comen
 ---
 
 <div align="center"><sub>ULTRON · Built on MARK LVI</sub></div>
+
+
+## Guia de instalação e atualização
+
+Veja o [guia detalhado](docs/installation.md) para instalação, dados locais e atualizações.

@@ -59,6 +59,13 @@ class UpdateTests(unittest.TestCase):
         self.assertEqual((self.root/"old.txt").read_text(),"old install")
         self.assertFalse(list(self.root.parent.glob(".ULTRON-backup-*")))
 
+    def test_new_payload_launcher_is_not_overwritten_by_setup(self):
+        def prepare(emit, cancel, *, target):
+            self.prepare(emit, cancel, target=target)
+            (target / "ULTRON.exe").write_bytes(b"separate app launcher")
+        self.swap(prepare)
+        self.assertEqual((self.root / "ULTRON.exe").read_bytes(), b"separate app launcher")
+
     def test_promotion_failure_restores_original(self):
         rename=Path.rename
         def fail_stage(path, target):

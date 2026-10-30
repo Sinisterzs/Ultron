@@ -342,3 +342,112 @@ parciais e o schema antigo continua suportado. Não remover arquivos pessoais da
 raiz nem modificar a instalação atual durante testes. Acumular melhorias locais;
 somente gerar Setup/publicar quando o usuário autorizar explicitamente. A release
 0.1.3 foi autorizada expressamente por corrigir a falha do atualizador.
+
+### Cache dos painéis em perspectiva (melhoria local)
+
+`PerspectiveSideView` mantém a imagem de saída supersampled e usa
+`QGraphicsProxyWidget.ItemCoordinateCache` para reutilizar pixels dos widgets.
+O DPR da imagem é 1,5: somente escalar o painter deixaria o cache nativo em 1×.
+O cache do item respeita regiões nativas alteradas, mesmo quando a perspectiva
+faz o Qt anunciar dano no proxy inteiro; a composição transformada ainda pode
+cobrir todo o painel. Não afirmar atualização de apenas uma linha nem ganho de
+FPS global sem medir. O sinal `scene.changed` encaminha dano ao viewport porque
+o paintEvent customizado usa `scene.render`. A imagem de saída é recriada ao
+mudar geometria/DPR/transformação e liberada no encerramento. A invalidação dos
+pixels de widgets, incluindo tema, rolagem e seleção, continua a cargo do Qt.
+`tests/test_perspective_rendering.py` exercita os widgets reais por AST/offscreen,
+sem importar main/ui ou iniciar serviços, e compara a saída parcial com uma
+composição completa usando o mesmo cache nativo. Cache de pixels pode alterar
+antialiasing em relação ao render direto; revisar legibilidade também na UI real.
+Essa melhoria não altera a digitação nem adiciona timers ou preparação no Setup.
+
+### Repintura do HUD e diagnóstico de cadência (melhoria local)
+
+`HudCanvas.paintEvent` sempre restaura os pixels solicitados pelo Qt. Somente
+um quadro autorizado pela cadência, ou cache inválido, chama `_paint_frame`;
+hover/expose usa a última QImage transparente, sem avançar animação ou contar
+um novo quadro. O blit exclui a região dos filhos para preservar o botão FPS.
+O cache considera tamanho, DPR, modelo e paleta; o timer compartilhado continua
+único. A imagem usa pixels físicos para evitar perda de resolução em telas HiDPI.
+
+`core/hud_diagnostics.py` mantém amostras limitadas e separa os alvos 47/60.
+O relatório `data_root()/logs/hud-frame-diagnostics.csv` contém FPS de quadros
+gerados, p50/p95/p99 dos intervalos, atrasos e slots perdidos, custo de render,
+blit e pintura total, restaurações, memória do cache e RSS do processo. Não mede
+apresentação física na tela/GPU. Usa o timer de relatório existente (5 s) e
+aboutToQuit; não grava arquivos nem consulta RSS em paintEvent. Não prometer
+cadência estável no app completo com base apenas em uma medição isolada.
+`tests/test_hud_frame_cache.py` carrega a classe por AST e usa cristal/Qt reais,
+sem main/ui, configuração pessoal ou áudio. `tools/benchmark_hud_rendering.py`
+compara o caminho direto anterior com o cache em fixture offscreen e grava em
+`tools/reports/hud-cache/`; aceita `--seconds` entre 1 e 30 por cenário.
+
+### Ícone compartilhado (melhoria local)
+
+O desenho indicado pelo usuário está em `config/jarvis.png`; `jarvis.ico` é uma
+conversão ICO real com tamanhos 16–256, preservando o PNG original. Não apenas
+renomear PNG para ICO. `core/app_icon.py` aplica o mesmo recurso ao app, launcher,
+Setup e helper; no bootstrap procura também `payload/app/config/jarvis.ico`.
+Os specs e o Inno já usam esse ICO; o atalho criado pelo Setup online referencia
+o ícone instalado em `app/config`. Esses recursos só passam a um novo executável
+ou instalador após um build expressamente autorizado. Não gerar Setup/publicar
+como efeito colateral da mudança de asset.
+
+### Conversa holográfica compacta (melhoria local)
+
+`ui_chat.py` contém `HoloChat`/`ChatBubble`: o chat aprovado fica junto ao cristal
+em telas amplas e usa o espaço inferior direito em janelas estreitas, sem cobrir
+o cristal ou o rótulo de estado. É filho da página inicial, ancorado ao stack do
+HUD, sem entrar no cache do HUD nem nos proxies em perspectiva. Não adicionar
+timer para posicionamento/digitação. Mudanças de tamanho usam eventos do Qt;
+ao mostrar câmera/vídeo, o chat é ocultado e seu histórico continua recebendo
+mensagens. O painel tem até 280×240 pixels lógicos; recolher mantém o cabeçalho.
+
+O Activity Log visível saiu da coluna direita, fazendo upload/entrada/controles
+subirem ao topo. O `LogWidget` permanece oculto como fonte de digitação e da
+página Atividade. `entry_started(text, category)` e
+`entry_progress(visible_text, category, finished)` alimentam os balões usando
+a mesma cadência de 6 ms/caractere em lotes por quadro. `entry_completed` e seu
+HTML continuam emitindo uma vez por entrada. Somente Você/Ultron aparecem no
+chat; SYS/Plugin/erros permanecem na Atividade. Não interpretar transcrição como
+HTML nem criar uma segunda rota que duplique mensagens.
+
+Respostas longas mostram até quatro linhas, com Ler mais/Ler menos dentro da
+altura fixa e área rolável do painel. A prévia já recolhida é reutilizada durante
+a digitação. O histórico visível é limitado a 100 mensagens; Atividade mantém
+seu limite próprio. A rolagem segue o fim até o usuário subir/expandir um balão;
+novas mensagens oferecem um botão para retomar. Testes funcionais ficam em
+`tests/test_holo_chat.py`; `tools/render_chat_preview.py` monta componentes reais
+por AST/Qt offscreen em duas larguras, sem main/ui, voz ou configuração pessoal.
+O novo módulo integra a allowlist do payload; não gerar Setup como validação.
+
+O chat se oculta após 4 segundos sem atividade. `HoloChat.bind_hud_clock` usa
+o mesmo `HudCanvas.pacedFrame`, sem criar QTimer. Digitação ativa, fala do
+assistente e cursor sobre o painel suspendem o prazo; eventos de interação dos
+filhos (balões, scrollbar, Ler mais, minimizar) o renovam. Novas mensagens de
+conversa reexibem o painel sem limpar o histórico; mensagens SYS não o reabrem.
+Câmera/vídeo continuam respeitando a ocultação do chat. O estado LISTENING por
+si só não conta como fala: ele também representa silêncio com o microfone ativo.
+
+### Release 0.1.4 e ícones distintos
+
+O usuário autorizou expressamente o build e a publicação desta atualização.
+`config/jarvis.ico`/`jarvis.png` continuam sendo a marca do aplicativo;
+`config/setup.ico`/`setup.png` usam o emblema com engrenagem escolhido para o
+Setup. `apply_app_icon(..., setup=True)` é reservado ao Setup e ao helper.
+
+O Setup não deve mais ser copiado sobre o executável com marca do app. O build
+gera primeiro `installer/Launcher.spec` a partir de `installed_entry.py`: um
+executável pequeno sem Qt, que usa `core/installed_launcher.py` para iniciar o
+runtime privado com o mesmo saneamento de ambiente/busca de DLLs já validado.
+Depois `Bootstrap.spec` inclui esse launcher em `payload/ULTRON.exe`, com hash
+em `manifest.launcher_sha256`, além das fontes/assets por allowlist. A preparação
+verifica o launcher antes de downloads/escritas; a promoção preserva o executável
+preparado. O fallback de copiar o Setup permanece somente para payloads antigos.
+
+`installer/verify_icons.py` compara recursos RT_ICON dos dois PEs com os ICOs,
+sem executar os binários. O workflow faz essa verificação e o smoke test isolado
+do Setup antes de produzir o rascunho de release. Publicar o rascunho continua
+sendo uma etapa explícita, autorizada nesta solicitação. O README canônico é
+`README.md`; o anterior foi preservado em `docs/installation.md`, removendo a
+colisão de nomes README.md/readme.md em sistemas Windows.

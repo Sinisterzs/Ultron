@@ -14,6 +14,8 @@ for package in ("actions", "plugins", "providers", "memory", "core", "dashboard"
 datas += [(str(root / "core/prompt.txt"), "core"),
           (str(root / "core/face_model.obj"), "core"),
           (str(root / "config/jarvis.ico"), "config"),
+          (str(root / "config/jarvis.png"), "config"),
+          (str(root / "config/setup.ico"), "config"),
           (str(root / "release_config.json"), "."),
           (str(root / "dashboard/static"), "dashboard/static"),
           (str(root / "LICENSE"), ".")]
