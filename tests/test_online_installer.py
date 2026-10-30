@@ -176,3 +176,48 @@ class TaskDiagnosticsTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class BootstrapLaunchTests(unittest.TestCase):
+    def test_installed_child_does_not_keep_setup_qt_paths(self):
+        import bootstrap_entry as bootstrap
+        import ctypes
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            (root / "runtime").mkdir()
+            (root / "app").mkdir()
+            (root / "runtime/pythonw.exe").touch()
+            (root / "app/ultron_entry.py").touch()
+            bundle = str(root / "_MEI_test")
+            env = {"PATH": os.pathsep.join([bundle, str(Path(bundle)/"PyQt6"), str(root/"safe")]),
+                   "QT_PLUGIN_PATH": bundle, "QT_QPA_PLATFORM_PLUGIN_PATH": bundle,
+                   "QML2_IMPORT_PATH": bundle, "PYTHONHOME": bundle}
+            with patch.dict(os.environ, env), patch.object(bootstrap.sys, "_MEIPASS", bundle, create=True), \
+                 patch.object(bootstrap.subprocess, "Popen") as spawn, \
+                 patch.object(ctypes, "windll", create=True) as dll:
+                dll.kernel32.SetDllDirectoryW.return_value = 1
+                bootstrap.launch_installed(root)
+                child = spawn.call_args.kwargs
+                self.assertTrue(child["close_fds"])
+                self.assertEqual(child["env"]["PATH"], str(root/"safe"))
+                for key in ("QT_PLUGIN_PATH", "QT_QPA_PLATFORM_PLUGIN_PATH", "QML2_IMPORT_PATH", "PYTHONHOME"):
+                    self.assertNotIn(key, child["env"])
+                if os.name == "nt":
+                    self.assertEqual([c.args for c in dll.kernel32.SetDllDirectoryW.call_args_list], [(None,), (bundle,)])
+
+    def test_dll_search_path_is_restored_if_launch_fails(self):
+        import bootstrap_entry as bootstrap
+        import ctypes
+        if os.name != "nt":
+            self.skipTest("Windows DLL search path")
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            (root / "runtime").mkdir(); (root / "app").mkdir()
+            (root / "runtime/pythonw.exe").touch(); (root / "app/ultron_entry.py").touch()
+            with patch.object(bootstrap.sys, "_MEIPASS", d, create=True), \
+                 patch.object(bootstrap.subprocess, "Popen", side_effect=OSError("launch failed")), \
+                 patch.object(ctypes, "windll") as dll:
+                dll.kernel32.SetDllDirectoryW.return_value = 1
+                with self.assertRaises(OSError):
+                    bootstrap.launch_installed(root)
+                self.assertEqual(dll.kernel32.SetDllDirectoryW.call_args.args, (d,))

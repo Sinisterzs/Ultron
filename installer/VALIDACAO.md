@@ -32,3 +32,16 @@ Windows limpa. Conexões reais Gemini/Spotify, automação web, desinstalação,
 assinatura digital e auditoria completa do histórico continuam fora da verificação.
 As prévias usam dados fictícios. A atualização automática permanece adiada;
 o aviso de versão abre a página do release em Sinisterzs/Ultron.
+
+
+## Limpeza temporária — 30/10/2026 (preview.3)
+
+Após o aviso de remoção no Windows, a pasta temporária inspecionada continha
+somente `PyQt6/Qt6/plugins/styles/qmodernwindowsstyle.dll`. O bootstrap usa
+Fusion explicitamente: o plugin nativo não utilizado foi retirado do pacote.
+Ao abrir o runtime instalado, o bootstrap também retira caminhos Qt herdados,
+remove entradas do bundle do PATH e restaura temporariamente a busca de DLLs
+do Windows. Isso evita que o processo independente retenha recursos do Setup.
+Dois testes novos verificam o ambiente do filho e a restauração após falha.
+A suíte agora tem 110 testes. A reprodução no PC do destinatário ainda precisa
+ser confirmada; não se deve atribuir todo bloqueio de arquivo à mesma causa.
