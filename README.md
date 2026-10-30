@@ -2,73 +2,67 @@
 
 # U L T R O N
 
-**INTELLIGENT DESKTOP SYSTEM**
+**PERSONAL AI SYSTEM**
 
-Um assistente de IA para Windows, com interface holográfica, interação por voz e automação de tarefas.
+*Inteligência artificial para o seu desktop.*
 
-[**Download para Windows**](https://github.com/Sinisterzs/Ultron/releases) · [**Documentação**](#documentação-e-desenvolvimento) · [**Código-fonte**](https://github.com/Sinisterzs/Ultron)
+<img src="docs/assets/crystal-pulse.webp" alt="Crystal Pulse — emblema animado do ULTRON inspirado no launcher" width="700" />
 
-![Python](https://img.shields.io/badge/Python-3.11--3.13-151515?style=flat-square&logo=python&logoColor=white)
-![PyQt6](https://img.shields.io/badge/Interface-PyQt6-151515?style=flat-square)
-![Windows](https://img.shields.io/badge/Plataforma-Windows_x64-151515?style=flat-square&logo=windows&logoColor=white)
-![Status](https://img.shields.io/badge/Status-Em_desenvolvimento-631c2b?style=flat-square)
+**Windows** &nbsp;·&nbsp; **Python / PyQt6** &nbsp;·&nbsp; **Gemini Live**
+
+[**Download**](https://github.com/Sinisterzs/Ultron/releases) &nbsp;·&nbsp; [**Documentação**](docs/) &nbsp;·&nbsp; [**Código-fonte**](https://github.com/Sinisterzs/Ultron)
 
 </div>
 
 ---
 
-## Uma interface para conversar e agir
+## Visão geral
 
-O **ULTRON** é um assistente pessoal desktop, desenvolvido em **Python e PyQt6**, que combina conversação com IA, comandos de voz, integrações com serviços e ferramentas de automação em uma experiência visual própria.
+**ULTRON** é um assistente pessoal para Windows com interface holográfica, interação por voz e ferramentas de automação. Construído em Python e PyQt6, é uma evolução personalizada do [MARK LVI, de FatihMakes](https://github.com/FatihMakes/Mark-LVI).
 
-Sua interface utiliza uma identidade escura e vermelha, com elementos holográficos, um núcleo visual reativo e navegação integrada. O objetivo do projeto é evoluir de um assistente que responde perguntas para um sistema capaz de auxiliar em tarefas reais no computador, com controle do usuário sobre ações sensíveis.
+O objetivo é reunir conversação, integrações e controles do desktop em uma experiência única, com identidade visual própria e foco em responsividade.
 
-> **Projeto em desenvolvimento.** Recursos e integrações dependem de configuração, permissões, hardware e serviços externos. Nem todos os fluxos foram validados em uma instalação limpa do Windows.
+## Funcionalidades
 
-<!-- Quando houver uma captura oficial do aplicativo no repositório, adicione-a aqui.
-Exemplo: ![Interface do ULTRON](docs/assets/ultron-interface.png)
-Não aponte para um arquivo que ainda não existe. -->
+| Sistema | Recursos |
+|:--|:--|
+| **Inteligência e voz** | Conversação com Gemini Live, áudio e push-to-talk. |
+| **Interface** | HUD holográfico, Crystal Pulse, temas e launcher dedicado. |
+| **Automação** | Ferramentas para sistema, arquivos, navegador, busca e mídia. |
+| **Integrações** | Spotify com autorização via PKCE, conforme as condições da API. |
+| **Memória** | Persistência de informações e dashboard remoto. |
+| **Distribuição** | Instalador para Windows x64 e mecanismo integrado de atualização. |
 
-## Recursos
+> A disponibilidade de cada recurso depende de credenciais, serviços externos, hardware e permissões. O projeto continua em desenvolvimento.
 
-| Sistema | O que oferece |
-| --- | --- |
-| **IA e voz** | Conversação por voz com Gemini Live e suporte a push-to-talk. |
-| **Interface holográfica** | HUD em PyQt6, visualização reativa e opções de personalização visual. |
-| **Automação desktop** | Ferramentas para tarefas de sistema, arquivos, navegador e mídia, conforme permissões e disponibilidade. |
-| **Integrações** | Spotify com fluxo de autorização PKCE e outras funcionalidades configuráveis. |
-| **Memória** | Armazenamento persistente de informações e preferências do assistente. |
-| **Dashboard** | Interface remota para recursos compatíveis. |
-| **Atualizações** | Aviso de versão disponível, download verificado e opção de reiniciar quando o usuário decidir. |
+## Instalação
 
-## Download e instalação
+**Windows x64** · Conexão com a internet necessária na instalação.
 
-### Windows x64
+1. Acesse a página de [**Releases**](https://github.com/Sinisterzs/Ultron/releases).
+2. Baixe o arquivo **`ULTRON-Setup.exe`** da versão desejada.
+3. Execute o instalador e siga a configuração inicial.
+4. Informe sua **própria chave Gemini** quando solicitada. A configuração do Spotify é opcional.
 
-Acesse a página de [**Releases**](https://github.com/Sinisterzs/Ultron/releases) e baixe o instalador **`ULTRON-Setup.exe`** da versão desejada.
+O instalador prepara um runtime Python privado e instala as dependências; não é necessário instalar Python manualmente. O Chromium usado na automação web é um download opcional e explícito.
 
-O instalador apresenta a configuração inicial e prepara um runtime Python privado com as dependências do aplicativo. **Não é necessário instalar Python manualmente** para usar o Setup; é necessária conexão com a internet.
+**Observações importantes:**
 
-O Chromium utilizado pela automação web é um download opcional, solicitado separadamente.
+- O instalador ainda **não tem assinatura digital** e pode gerar avisos do Windows.
+- A instalação completa em uma máquina Windows limpa ainda precisa ser validada.
+- Nenhuma chave pessoal é distribuída com o projeto. Credenciais são protegidas pelo **Windows DPAPI** para a conta local após a configuração; memória e preferências ficam na área de dados do usuário.
 
-**Antes de instalar:**
+## Atualizações
 
-- O instalador ainda **não possui assinatura digital**.
-- A instalação completa em um Windows limpo ainda precisa ser validada.
-- Cada usuário deve fornecer sua própria chave de API Gemini; integrações como Spotify são opcionais.
-- Nenhuma credencial pessoal é distribuída com o projeto.
+O ULTRON consulta novas versões enquanto está aberto e pode baixar uma atualização verificada. Ao finalizar o download, o usuário escolhe **Reiniciar agora** ou **Depois**.
 
-### Dados e atualizações
+A instalação anterior é preservada durante a troca para possibilitar restauração em caso de falha. Por isso, é necessário espaço temporário para duas instalações.
 
-As credenciais são armazenadas após a preparação e protegidas pelo **Windows DPAPI**, vinculadas à conta local. As preferências e a memória ficam na área de dados do usuário, fora da pasta de instalação.
-
-O aplicativo verifica a disponibilidade de atualizações enquanto está aberto. Após o download, o usuário escolhe **Reiniciar agora** ou **Depois**. O processo de atualização preserva a instalação anterior para possibilitar restauração em caso de falha.
-
-> **Compatibilidade de atualização:** versões anteriores à **0.1.1** exigem instalar manualmente uma vez o Setup mais recente para habilitar o atualizador atual. A atualização completa entre versões em outro computador ainda precisa de validação, e o procedimento exige espaço para duas instalações.
+> Versões anteriores à **0.1.1** precisam receber o novo instalador manualmente uma vez para habilitar o atualizador. O fluxo completo de atualização entre versões em outro computador ainda precisa ser validado.
 
 ## Executar pelo código-fonte
 
-Use **Python 3.11 a 3.13** no Windows e execute na raiz do repositório:
+Utilize **Python 3.11–3.13** em um ambiente virtual:
 
 ```powershell
 python -m venv .venv
@@ -76,70 +70,39 @@ python -m venv .venv
 .\.venv\Scripts\python.exe ultron_entry.py
 ```
 
-Para habilitar a automação web, instale os navegadores do Playwright:
+Para habilitar a automação web:
 
 ```powershell
 .\.venv\Scripts\python.exe -m playwright install chromium
 ```
 
-As credenciais e outros dados privados devem permanecer fora do controle de versão. O `.gitignore` contém exclusões conhecidas, mas é importante revisar os arquivos antes de publicar alterações.
+Não adicione chaves de API ou dados pessoais ao repositório. Verifique os arquivos antes de qualquer commit, mesmo com as regras do `.gitignore`.
 
-## Arquitetura e desenvolvimento
+## Desenvolvimento
 
-O ULTRON combina uma aplicação desktop em PyQt6 com módulos para voz, modelos de IA, automação, memória e integrações. O **launcher** atua como ponto de entrada e inicia a aplicação principal em outro processo.
-
-```text
-Ultron/
-├── actions/       # Ações e automações
-├── core/          # Componentes centrais
-├── dashboard/     # Interface de dashboard
-├── installer/     # Instalador e atualização
-├── memory/        # Persistência e configuração
-├── plugins/       # Extensões
-├── providers/     # Serviços e modelos
-├── tests/         # Testes automatizados
-├── tools/         # Ferramentas de desenvolvimento
-├── launcher.py    # Inicialização
-├── main.py        # Aplicação principal
-├── ui.py          # Interface desktop
-└── ui_sidebar.py  # Componentes de navegação
-```
-
-### Testes
+Execute os testes automatizados:
 
 ```powershell
 .\.venv\Scripts\python.exe -X utf8 -m unittest discover -s tests -p "test_*.py" -q
 ```
 
-Os testes automatizados incluem dados fictícios e mocks. **Resultados positivos não garantem conectividade real** com todos os serviços externos nem a ausência de falhas em todas as máquinas.
+Os testes utilizam mocks e dados fictícios; **não garantem** conectividade real de todos os serviços ou compatibilidade com todos os ambientes Windows.
 
-### Documentação e desenvolvimento
+Documentação para colaboradores e manutenção:
 
-- [AGENTS.md](AGENTS.md) — contexto técnico e orientações para agentes e desenvolvedores.
-- [Instalador](installer/README.md) — build, armazenamento e limitações.
-- [Validação do instalador](installer/VALIDACAO.md) — verificações da prévia.
-- [Validação de WhatsApp](docs/whatsapp-validation.md) — escopo e verificações da integração.
+- [Instruções para agentes e desenvolvedores](AGENTS.md)
+- [Instalador: build e armazenamento](installer/README.md)
+- [Validação do instalador](installer/VALIDACAO.md)
+- [Validação da integração WhatsApp](docs/whatsapp-validation.md)
 
-O build do Setup pode ser realizado localmente ou pelo workflow de Windows. O envio de uma tag pode criar um rascunho de release quando ainda não houver um.
+O instalador pode ser compilado localmente ou por um workflow Windows. O envio de uma tag cria um rascunho de release quando ainda não existe.
 
-## Estado do projeto
+## Licença e créditos
 
-O ULTRON está em desenvolvimento ativo. As prioridades incluem melhorar a estabilidade, ampliar as automações, refinar a experiência de voz e validar os processos de instalação e atualização em diferentes ambientes.
+ULTRON é derivado do **[MARK LVI de FatihMakes](https://github.com/FatihMakes/Mark-LVI)**. A licença original [**CC BY-NC 4.0**](LICENSE) é preservada, incluindo atribuição e restrição de uso comercial. A publicação do código neste repositório não altera essas condições.
 
-Para acompanhar novas versões, consulte as [Releases](https://github.com/Sinisterzs/Ultron/releases).
-
-## Origem, licença e créditos
-
-O ULTRON é derivado do projeto [**MARK LVI**, de FatihMakes](https://github.com/FatihMakes/Mark-LVI).
-
-A licença original **Creative Commons Attribution–NonCommercial 4.0 (CC BY-NC 4.0)** é preservada em [LICENSE](LICENSE), incluindo os requisitos de atribuição e as **restrições de uso comercial**. A publicação deste repositório não altera esses termos.
-
-O modelo de face **MediaPipe** mantém sua atribuição original, conforme as referências no código e no projeto de origem.
+O modelo de face MediaPipe mantém sua atribuição original, indicada nos comentários do projeto e no upstream.
 
 ---
 
-<div align="center">
-
-**ULTRON** · *Built to evolve.*
-
-</div>
+<div align="center"><sub>ULTRON · Built on MARK LVI</sub></div>
