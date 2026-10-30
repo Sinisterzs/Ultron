@@ -316,3 +316,15 @@ um Setup normal. As pastas anteriores/de preparação são mantidas, exigindo es
 extra; isso não implementa rollback automático de falhas após o HUD reabrir.
 A UI do helper está em `ui_update_install.py`; não importar `main` para testá-la.
 Versões antigas precisam receber esse suporte uma vez pelo Setup manual.
+
+
+### Digitação do log por quadro (0.1.2)
+
+`LogWidget.bind_hud_clock` compartilha `HudCanvas.pacedFrame`. O texto mantém
+6 ms nominais por caractere com relógio monotônico, mas insere um lote por
+quadro em uma única edição do documento e faz uma atualização de rolagem.
+A pausa de 20 ms entre mensagens também usa esse relógio; não reintroduzir
+um timer por letra. O sinal `entry_completed` continua emitindo texto, categoria
+e HTML uma vez por mensagem para `ActivityPage`. Testes isolam o widget por AST
+sem importar main/ui nem iniciar áudio. Menos alterações de documento não
+comprovam ganho de FPS global; os painéis em perspectiva permanecem iguais.

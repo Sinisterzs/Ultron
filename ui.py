@@ -1244,9 +1244,20 @@ class LogWidget(QTextEdit):
         self._pos     = 0
         self._tag     = "sys"
         self._ai_name_lc = "jarvis"   # updated when assistant name changes
-        self._tmr = QTimer(self)
-        self._tmr.timeout.connect(self._step)
+        self._entry_cursor = None
+        self._typing_started = 0.0
+        self._next_at = 0.0
+        self._hud_clock = None
         self._sig.connect(self._enqueue)
+
+    def bind_hud_clock(self, hud):
+        """Use the existing GUI frame clock instead of a per-letter timer."""
+        if self._hud_clock is hud:
+            return
+        if self._hud_clock is not None:
+            self._hud_clock.pacedFrame.disconnect(self._step)
+        self._hud_clock = hud
+        hud.pacedFrame.connect(self._step)
 
     def append_log(self, text: str):
         self._sig.emit(text)
@@ -1256,13 +1267,14 @@ class LogWidget(QTextEdit):
         if not self._typing:
             self._next()
 
-    def _next(self):
+    def _next(self, now=None):
         if not self._queue:
             self._typing = False
             return
         self._typing = True
         self._text   = self._queue.pop(0)
         self._pos    = 0
+        self._typing_started = time.perf_counter() if now is None else now
         from PyQt6.QtGui import QTextCursor, QTextDocument
         self._entry_document = QTextDocument(self)
         self._entry_document.setDefaultFont(self.font())
@@ -1284,12 +1296,28 @@ class LogWidget(QTextEdit):
         elif tl.startswith("file:"):                             self._tag = "file"
         elif "err" in tl:                                        self._tag = "err"
         else:                                                    self._tag = "sys"
-        self._tmr.start(6)
 
-    def _step(self):
-        if self._pos < len(self._text):
-            ch  = self._text[self._pos]
-            cur = self.textCursor()
+    def _step(self, now=None):
+        now = time.perf_counter() if now is None else now
+        if not self._typing:
+            return
+        if self._entry_cursor is None:
+            if now < self._next_at:
+                return
+            self._next(self._next_at)
+            if not self._typing:
+                return
+        # Preserve the intended 6 ms/character speed using elapsed time. A
+        # delayed frame catches up in one insertion instead of queued callbacks.
+        target = min(len(self._text), int(max(0.0, now - self._typing_started + 1e-9) / .006))
+        finished = target == len(self._text)
+        if target <= self._pos and not finished:
+            return
+        batch = self._text[self._pos:target]
+        cur = self.textCursor()
+        cur.movePosition(cur.MoveOperation.End)
+        cur.beginEditBlock()
+        if batch:
             fmt = cur.charFormat()
             col = {
                 "you":  qcol(C.WHITE),
@@ -1304,25 +1332,22 @@ class LogWidget(QTextEdit):
                 "sys":  qcol(C.TEXT_MED),
             }.get(self._tag, qcol(C.TEXT))
             fmt.setForeground(QBrush(col))
-            cur.movePosition(cur.MoveOperation.End)
-            cur.insertText(ch, fmt)
-            self._entry_cursor.insertText(ch, fmt)
-            self.setTextCursor(cur)
-            self.ensureCursorVisible()
-            self._pos += 1
-        else:
-            self._tmr.stop()
+            cur.insertText(batch, fmt)
+            self._entry_cursor.insertText(batch, fmt)
+        if finished:
+            cur.insertText("\n")
+        cur.endEditBlock()
+        self.setTextCursor(cur)
+        self.ensureCursorVisible()
+        self._pos = target
+        if finished:
             from PyQt6.QtGui import QTextDocumentFragment
             html = QTextDocumentFragment(self._entry_document).toHtml()
             self.entry_completed.emit(self._text, self._entry_category, html)
             self._entry_cursor = None
             self._entry_document.deleteLater()
-            cur = self.textCursor()
-            cur.movePosition(cur.MoveOperation.End)
-            cur.insertText("\n")
-            self.setTextCursor(cur)
-            self.ensureCursorVisible()
-            QTimer.singleShot(20, self._next)
+            # Keep the inter-message pause, checked on that same HUD clock.
+            self._next_at = now + .020
 
 _FILE_ICONS = {
     "image":   ("🖼", "#00d4ff"), "video":   ("🎬", "#ff6b00"),
@@ -5537,6 +5562,7 @@ class MainWindow(QMainWindow):
         body.addWidget(self._center_split, stretch=5)
 
         self._right_panel = self._build_right_panel()
+        self._log.bind_hud_clock(self.hud)
         self._right_perspective = PerspectiveSideView(self._right_panel, "right")
         body.addWidget(self._right_perspective, stretch=0)
         home_layout.addLayout(body, stretch=1)

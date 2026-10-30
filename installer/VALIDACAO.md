@@ -81,3 +81,23 @@ confirmado antes de assumir compatibilidade com todos os PCs.
 
 Resultado local final desta implementação: 126 testes passaram e o executável
 verificou 97 arquivos de payload, incluindo a troca da fixture e a prévia do helper.
+
+
+## Digitação agrupada — 30/10/2026 (0.1.2)
+
+Somente o LogWidget foi alterado: usa o relógio já existente do HUD e calcula
+lotes pelo tempo monotônico, preservando a taxa nominal de 6 ms por caractere.
+Sem mudanças no renderer em perspectiva, cristal ou efeitos da barra.
+
+Seis regressões Qt verificam taxa a 47/60 FPS, uma alteração por quadro,
+recuperação após atraso, fila/pausa, HTML do histórico, Unicode, ociosidade e
+conexão única do relógio. Na comparação controlada de 1.508 caracteres, o
+código anterior fez 1.509 alterações do documento; o novo fez 426 a 47 FPS
+(-71,8%) e 543 a 60 FPS (-64,0%), com a mesma duração nominal de 9,048 s.
+A prévia isolada foi inspecionada. Esses números não medem o FPS do app inteiro;
+a percepção em fala/mensagens reais precisa ser confirmada na instalação.
+
+Também foi construída a MainWindow real em Qt offscreen com perfil fictício,
+rede e subprocessos bloqueados e serviços opcionais de boot desativados. O
+texto percorreu o sinal pacedFrame real e chegou ao histórico de Atividade.
+O teste não importou main nem iniciou voz; a janela renderizada foi inspecionada.
