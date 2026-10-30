@@ -328,3 +328,17 @@ um timer por letra. O sinal `entry_completed` continua emitindo texto, categoria
 e HTML uma vez por mensagem para `ActivityPage`. Testes isolam o widget por AST
 sem importar main/ui nem iniciar áudio. Menos alterações de documento não
 comprovam ganho de FPS global; os painéis em perspectiva permanecem iguais.
+
+
+### Confirmação e promoção Windows (0.1.3)
+
+Download e execução agora são etapas distintas. `download_update` não cria
+processos; `start_update` só é chamado após Reiniciar agora, revalida o hash e
+cria uma tentativa independente. Depois mantém o app aberto e um botão discreto
+permite retomar durante a sessão. O helper continua esperando a saída real.
+A promoção mantém o diretório ULTRON no lugar e move somente app/runtime/exe,
+com retry limitado e rollback por componente; o journal schema 2 recupera falhas
+parciais e o schema antigo continua suportado. Não remover arquivos pessoais da
+raiz nem modificar a instalação atual durante testes. Acumular melhorias locais;
+somente gerar Setup/publicar quando o usuário autorizar explicitamente. A release
+0.1.3 foi autorizada expressamente por corrigir a falha do atualizador.

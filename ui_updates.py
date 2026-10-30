@@ -10,10 +10,12 @@ from PyQt6.QtWidgets import QFrame, QVBoxLayout, QHBoxLayout, QLabel, QPushButto
 class UpdateToast(QFrame):
     updateRequested = pyqtSignal(object)
     cancelRequested = pyqtSignal()
+    restartRequested = pyqtSignal()
 
     def __init__(self, release, parent=None):
         super().__init__(parent)
         self.release, self.busy = release, False
+        self.ready_to_restart = False
         self.setObjectName("UpdateToast")
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
@@ -49,12 +51,14 @@ class UpdateToast(QFrame):
                 installed_root()
             except Exception:
                 self.downloadable = False
-        self.action = QPushButton("Baixar e reiniciar" if self.downloadable else "Ver atualização  ↗")
+        self.action = QPushButton("Baixar atualização" if self.downloadable else "Ver atualização  ↗")
         self.action.clicked.connect(self._activate); row.addWidget(self.action)
         box.addLayout(row); self.adjustSize()
 
     def _activate(self):
-        if self.downloadable:
+        if self.ready_to_restart:
+            self.restartRequested.emit()
+        elif self.downloadable:
             self.updateRequested.emit(self.release)
         else:
             QDesktopServices.openUrl(QUrl(self.release.url))
@@ -72,6 +76,15 @@ class UpdateToast(QFrame):
         self.progress.setRange(0, 100 if total else 0)
         if total:
             self.progress.setValue(min(100, int(current * 100 / total)))
+        self.adjustSize()
+
+    def show_ready(self):
+        self.busy = False
+        self.ready_to_restart = True
+        self.status.setText("Download concluído. Quer reiniciar agora para aplicar a atualização?")
+        self.progress.show(); self.progress.setRange(0, 100); self.progress.setValue(100)
+        self.action.setText("Reiniciar agora"); self.action.setEnabled(True)
+        self.later.setText("Depois"); self.later.setEnabled(True)
         self.adjustSize()
 
     def show_error(self, text):
@@ -110,8 +123,19 @@ class DownloadWorker(QObject):
 
     def run(self):
         try:
-            from core.update_download import download_and_handoff
-            folder = download_and_handoff(self.release, self.progress.emit, self.stop.is_set)
+            from core.update_download import download_update
+            prepared = download_update(self.release, self.progress.emit, self.stop.is_set)
+            self.ready.emit(prepared)
+        except Exception as exc:
+            from core.install_manager import redact_install_output
+            self.failed.emit(redact_install_output(str(exc)))
+
+
+class HandoffWorker(DownloadWorker):
+    def run(self):
+        try:
+            from core.update_download import start_update
+            folder = start_update(self.release, self.progress.emit, self.stop.is_set)
             self.ready.emit(folder)
         except Exception as exc:
             from core.install_manager import redact_install_output
@@ -124,6 +148,13 @@ class UpdateController(QObject):
         self.window = window
         self.toast = None
         self.worker = None
+        self.prepared = None
+        self.pending_button = QPushButton("Atualização pronta", window.centralWidget())
+        self.pending_button.setStyleSheet("background:#000;color:#ff2034;border:1px solid #60141f;padding:5px;")
+        self.pending_button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.pending_button.setFixedSize(160, 28)
+        self.pending_button.clicked.connect(self._show_prepared)
+        self.pending_button.hide()
         self.started = self.checking = self.downloading = False
         self.dismissed = set()
         self.stop = threading.Event()
@@ -165,19 +196,51 @@ class UpdateController(QObject):
         self.toast = UpdateToast(release, self.window.centralWidget())
         self.toast.updateRequested.connect(self._download)
         self.toast.cancelRequested.connect(self.stop.set)
+        self.toast.restartRequested.connect(self._restart)
         self._place(); self.toast.show(); self.toast.raise_()
 
     def _download(self, release):
         if self.downloading:
             return
         self.downloading = True; self.stop.clear()
-        self.toast.show_progress("Baixando atualização. O app reiniciará ao concluir.", 0, 0)
+        self.toast.show_progress("Baixando atualização. Depois você poderá escolher quando reiniciar.", 0, 0)
         self._place()
         self.download_worker = DownloadWorker(release, self.stop, self)
         self.download_worker.progress.connect(self._progress)
         self.download_worker.failed.connect(self._failed)
-        self.download_worker.ready.connect(self._handoff)
+        self.download_worker.ready.connect(self._download_ready)
         threading.Thread(target=self.download_worker.run, daemon=True, name="ultron-update-download").start()
+
+    def _download_ready(self, prepared):
+        self.prepared = prepared
+        self.downloading = False
+        self.download_worker.deleteLater()
+        self._show_prepared()
+
+    def _show_prepared(self):
+        if self.prepared is None or self.downloading:
+            return
+        if self.toast is None or self.toast.release.version != self.prepared.release.version:
+            if self.toast:
+                self.toast.hide(); self.toast.deleteLater()
+            self.toast = UpdateToast(self.prepared.release, self.window.centralWidget())
+            self.toast.restartRequested.connect(self._restart)
+            self.toast.cancelRequested.connect(self.stop.set)
+        self.toast.show_ready()
+        self.pending_button.show(); self.pending_button.raise_()
+        self._place(); self.toast.show(); self.toast.raise_()
+
+    def _restart(self):
+        if self.prepared is None or self.downloading:
+            return
+        self.downloading = True; self.stop.clear()
+        self.pending_button.hide()
+        self.toast.show_progress("Preparando o reinício confirmado por você", 0, 0)
+        self.download_worker = HandoffWorker(self.prepared, self.stop, self)
+        self.download_worker.progress.connect(self._progress)
+        self.download_worker.failed.connect(self._failed)
+        self.download_worker.ready.connect(self._handoff)
+        threading.Thread(target=self.download_worker.run, daemon=True, name="ultron-update-handoff").start()
 
     def _progress(self, text, current, total):
         self.toast.show_progress(text, current, total)
@@ -186,6 +249,8 @@ class UpdateController(QObject):
     def _failed(self, message):
         self.downloading = False
         self.toast.show_error(message)
+        if self.prepared is not None:
+            self.pending_button.show()
         self._place()
         self.download_worker.deleteLater()
 
@@ -203,6 +268,8 @@ class UpdateController(QObject):
         self.window.close()
 
     def _place(self):
+        area = self.window.centralWidget()
+        self.pending_button.move(max(8, area.width() - 178), max(8, area.height() - 44))
         if self.toast:
             area = self.window.centralWidget()
             self.toast.move(max(8, area.width() - self.toast.width() - 18),

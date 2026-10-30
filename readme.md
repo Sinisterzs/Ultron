@@ -31,8 +31,10 @@ precisa ser validada.
 - Spotify com autorização no navegador via PKCE, sujeito às regras da API Spotify.
 - Memória persistente e dashboard remoto.
 - Aviso discreto de nova versão, com consulta periódica enquanto o app está aberto.
-- Clique em Baixar e reiniciar: download verificado, fechamento coordenado,
-  preparação em pasta separada, aplicação e reabertura pelo launcher.
+- Clique em Baixar atualização: download verificado no próprio app. Ao concluir,
+  escolha Reiniciar agora ou Depois. A aplicação só fecha após a confirmação.
+- O helper mantém a pasta principal no lugar e promove app/runtime/launcher,
+  com restauração em falhas e reabertura pelo launcher.
 
 A disponibilidade depende de credenciais, hardware, permissões e serviços externos.
 O launcher continua sendo a entrada e inicia a aplicação principal em outro processo.

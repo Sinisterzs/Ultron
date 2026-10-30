@@ -101,3 +101,25 @@ Também foi construída a MainWindow real em Qt offscreen com perfil fictício,
 rede e subprocessos bloqueados e serviços opcionais de boot desativados. O
 texto percorreu o sinal pacedFrame real e chegou ao histórico de Atividade.
 O teste não importou main nem iniciou voz; a janela renderizada foi inspecionada.
+
+
+## Confirmação e bloqueio da pasta — 30/10/2026 (0.1.3)
+
+A falha observada ocorreu ao renomear a pasta principal, antes de qualquer troca:
+a instalação 0.1.1 permaneceu e o staging continha 0.1.2. A presença posterior
+de outro processo ULTRON não comprova quem bloqueou a tentativa original.
+Um processo de teste com cwd na raiz reproduziu bloqueio do diretório Windows;
+a promoção de componentes funciona mantendo esse mesmo processo/pasta abertos.
+A transação agora mantém o contêiner e preserva os arquivos da raiz. Falhas em
+cada movimento de backup/promoção restauram app, runtime e executável.
+
+Os testes também comprovam que concluir o download não executa o helper, que
+Depois não fecha o app, que Atualização pronta retoma a pergunta e que o close
+só ocorre após o clique separado e a prontidão do helper. O hash é revalidado
+no reinício; tentativa cancelada não compartilha marcadores com a seguinte.
+A instalação real não foi alterada nos testes. A atualização completa no PC do
+usuário ainda precisa ser repetida após receber este suporte. Clientes antigos
+não podem ganhar a pergunta de confirmação apenas por uma publicação remota.
+
+Resultado final: 139 testes passaram; o executável verificou 97 arquivos e
+a transação por componentes em fixture, sem instalação real nem credenciais.

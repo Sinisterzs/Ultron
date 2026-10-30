@@ -55,16 +55,24 @@ python installer/configure_release.py --repository usuario/repositorio --version
 
 O aplicativo consulta o último release normal em uma thread de fundo a cada
 cinco minutos enquanto está aberto. Não toma foco nem interrompe a conversa.
-O botão **Baixar e reiniciar** exige clique explícito, baixa o asset exato do
+O botão **Baixar atualização** exige clique explícito e baixa o asset exato do
 repositório configurado e verifica o SHA-256 dos metadados oficiais do GitHub.
 Se o asset não tiver hash verificável, oferece somente a página do release.
+
+Ao concluir o download, o cartão pergunta **Reiniciar agora** ou **Depois**.
+Depois mantém o aplicativo aberto; um botão discreto **Atualização pronta**
+permite retomar durante a sessão. Nenhum helper inicia antes dessa confirmação.
+O hash é conferido novamente ao reiniciar e cada tentativa tem marcadores próprios.
 
 O helper separado é o próprio Setup no modo `--apply-update`. Antes de fechar o
 app, o download espera a prontidão do helper. O app encerra pelo coordenador
 existente; o helper espera o processo sair, sem matá-lo, e adquire o lock.
-Prepara runtime/bibliotecas em uma pasta irmã antes da troca; mantém a cópia
-anterior e restaura em caso de falha na promoção. Um registro permite recuperar
-interrupção entre os renames ao executar novamente um Setup normal. Não há
+Prepara runtime/bibliotecas em uma pasta irmã antes da troca. A pasta principal
+instalada permanece no lugar: somente app, runtime e ULTRON.exe são promovidos,
+com tentativas curtas em bloqueios temporários. Configuração de instalação e
+outros arquivos na raiz permanecem. A versão anterior é restaurada se qualquer
+promoção falhar. O journal schema 2 permite recuperar movimentos parciais ao
+executar novamente um Setup normal; o formato antigo continua sendo reconhecido. Não há
 rollback automático se a nova aplicação falhar após ser iniciada. Credenciais e
 memória externas não são regravadas e o wizard não é repetido na atualização.
 São necessários espaço para duas instalações e rede para preparar dependências.

@@ -156,6 +156,10 @@ def smoke_test(output):
     fixture.mkdir(parents=True)
     (fixture / "install_state.json").write_text('{"version":1}', encoding="utf-8")
     (fixture / "old.txt").write_text("old fixture", encoding="utf-8")
+    for name in ("runtime/pythonw.exe", "app/ultron_entry.py", "ULTRON.exe"):
+        previous = fixture / name
+        previous.parent.mkdir(parents=True, exist_ok=True)
+        previous.write_text("old fixture component", encoding="utf-8")
     def fixture_prepare(emit, cancel, *, target):
         for name in ("runtime/pythonw.exe", "app/ultron_entry.py"):
             path = target / name
@@ -164,7 +168,8 @@ def smoke_test(output):
     with patch.object(update_apply, "installation_root", return_value=fixture):
         backup = update_apply.stage_and_swap(fixture, lambda *args: None,
                                              prepare=fixture_prepare)
-    assert (backup / "old.txt").is_file()
+    assert (backup / "app/ultron_entry.py").is_file()
+    assert (fixture / "old.txt").is_file()
     assert (fixture / "app/ultron_entry.py").is_file()
     from ui_update_install import build_update_window
     updater, status, bar, cancel, stop = build_update_window()

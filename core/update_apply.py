@@ -81,14 +81,47 @@ def reject_links(root):
             raise ValueError("A instalação usa um redirecionamento de pasta não suportado.")
 
 
+COMPONENTS = ("app", "runtime", "ULTRON.exe")
+
+
+def rename_with_retry(source, destination, cancel=lambda: False, *, timeout=5):
+    """Allow transient Windows locks to settle, without killing processes."""
+    deadline = time.monotonic() + timeout
+    while True:
+        check_cancelled(cancel)
+        try:
+            Path(source).rename(destination)
+            return
+        except OSError as exc:
+            if getattr(exc, "winerror", None) not in (5, 32, 33) or time.monotonic() >= deadline:
+                raise
+            time.sleep(.1)
+
+
+def restore_components(root, stage, backup):
+    """Restore each old component, including an interrupted promotion."""
+    for name in reversed(COMPONENTS):
+        old, current, pending = backup / name, root / name, stage / name
+        if old.exists():
+            if current.exists():
+                if pending.exists():
+                    raise RuntimeError("Recuperação interrompida: há arquivos conflitantes. Preserve as pastas e consulte o registro.")
+                rename_with_retry(current, pending)
+            rename_with_retry(old, current)
+
+
 def stage_and_swap(root, emit, cancel=lambda: False, *, prepare=None, setup=None):
-    """Keep the entire previous install; restore it if promotion fails."""
+    """Keep the install container stable; promote app/runtime/launcher only."""
     root = Path(root).absolute()
     if root.resolve() != installation_root().resolve():
         raise ValueError("Destino de atualização inválido.")
     reject_links(root)
     if not (root / "install_state.json").is_file():
         raise ValueError("A instalação anterior não foi encontrada.")
+    for name in COMPONENTS:
+        reject_links(root / name)
+        if not (root / name).exists():
+            raise ValueError("A instalação atual está incompleta. Execute o Setup novamente.")
     prepare = prepare or _install
     setup = Path(setup or sys.executable)
     suffix = uuid.uuid4().hex
@@ -96,7 +129,6 @@ def stage_and_swap(root, emit, cancel=lambda: False, *, prepare=None, setup=None
     backup = root.parent / (".ULTRON-backup-" + suffix)
     stage.mkdir(exist_ok=False)
     with application_lock():
-        # All failures/cancellation here leave the current install untouched.
         prepare(emit, cancel, target=stage)
         check_cancelled(cancel)
         shutil.copy2(setup, stage / "ULTRON.exe")
@@ -104,18 +136,27 @@ def stage_and_swap(root, emit, cancel=lambda: False, *, prepare=None, setup=None
         for relative in ("runtime/pythonw.exe", "app/ultron_entry.py", "ULTRON.exe"):
             if not (stage / relative).is_file():
                 raise ValueError("A nova instalação está incompleta.")
-        # Small journal makes interrupted folder moves recoverable on next Setup.
+        backup.mkdir(exist_ok=False)
+        shutil.copy2(root / "install_state.json", backup / "install_state.json")
         journal = data_root() / "updates/pending.json"
         journal.parent.mkdir(parents=True, exist_ok=True)
         from core.config_store import save_config
-        save_config({"root": str(root), "stage": str(stage), "backup": str(backup)}, journal)
+        save_config({"schema": 2, "root": str(root), "stage": str(stage), "backup": str(backup)}, journal)
         emit("Aplicando a atualização", 0, 0)
-        root.rename(backup)
         try:
-            stage.rename(root)
-        except BaseException:
-            backup.rename(root)
+            # Do not rename the installation container: a terminal/Explorer or
+            # another directory handle can keep it open on Windows.
+            for name in COMPONENTS:
+                rename_with_retry(root / name, backup / name, cancel)
+                rename_with_retry(stage / name, root / name, cancel)
+        except BaseException as exc:
+            try:
+                restore_components(root, stage, backup)
+            except Exception as recovery:
+                raise RuntimeError("Não foi possível concluir a recuperação. As cópias e o registro foram preservados; feche o ULTRON e execute o Setup novamente.") from recovery
             journal.unlink(missing_ok=True)
+            if getattr(exc, "winerror", None) in (5, 32, 33):
+                raise RuntimeError("Há arquivos da instalação em uso ou sem acesso. A versão anterior foi restaurada. Feche outras instâncias do ULTRON e tente novamente.") from exc
             raise
         journal.unlink(missing_ok=True)
         emit("Atualização concluída", 1, 1)
@@ -123,7 +164,7 @@ def stage_and_swap(root, emit, cancel=lambda: False, *, prepare=None, setup=None
 
 
 def recover_interrupted():
-    """Restore old folder only when a recorded swap left the install absent."""
+    """Recover both legacy whole-folder moves and component transactions."""
     journal = data_root() / "updates/pending.json"
     if not journal.is_file():
         return
@@ -137,7 +178,11 @@ def recover_interrupted():
             raise ValueError("Pasta de recuperação inválida.")
         reject_links(path)
     with application_lock():
-        if not root.exists() and (backup / "install_state.json").is_file():
+        if state.get("schema") == 2:
+            if not root.is_dir():
+                raise RuntimeError("A pasta instalada não foi encontrada para recuperação.")
+            restore_components(root, stage, backup)
+        elif not root.exists() and (backup / "install_state.json").is_file():
             backup.rename(root)
         journal.unlink(missing_ok=True)
 

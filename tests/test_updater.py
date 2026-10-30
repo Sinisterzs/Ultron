@@ -23,6 +23,8 @@ class UpdateTests(unittest.TestCase):
         self.root.mkdir(parents=True)
         (self.root/"install_state.json").write_text('{"version":1}')
         (self.root/"old.txt").write_text("old install")
+        for name in ("runtime/pythonw.exe", "app/ultron_entry.py", "ULTRON.exe"):
+            item=self.root/name;item.parent.mkdir(parents=True,exist_ok=True);item.write_text("old component")
         self.setup = self.base/"download.exe"; self.setup.write_bytes(b"setup fixture")
 
     def tearDown(self):
@@ -43,7 +45,8 @@ class UpdateTests(unittest.TestCase):
         personal=self.base/"data/config/api_keys.json"
         personal.parent.mkdir(parents=True);personal.write_bytes(b"protected fixture")
         backup=self.swap()
-        self.assertEqual((backup/"old.txt").read_text(),"old install")
+        self.assertEqual((self.root/"old.txt").read_text(),"old install")
+        self.assertEqual((backup/"app/ultron_entry.py").read_text(),"old component")
         self.assertEqual((self.root/"app/ultron_entry.py").read_text(),"new")
         self.assertEqual(personal.read_bytes(),b"protected fixture")
         self.assertEqual((self.root/"install_state.json").read_text(),'{"version":1}')
@@ -59,7 +62,7 @@ class UpdateTests(unittest.TestCase):
     def test_promotion_failure_restores_original(self):
         rename=Path.rename
         def fail_stage(path, target):
-            if path.name.startswith(".ULTRON-stage-"):
+            if path.parent.name.startswith(".ULTRON-stage-") and path.name == "runtime":
                 raise OSError("locked fixture")
             return rename(path,target)
         with patch.object(Path,"rename",fail_stage), self.assertRaises(OSError):
@@ -109,7 +112,7 @@ class UpdateTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 download.download_and_handoff(release,lambda *a:None)
             process.assert_not_called()
-        self.assertEqual(len(list((self.base/"data/updates").glob("*/cancel"))),1)
+        self.assertTrue((self.root/"old.txt").exists())
 
     def test_verified_helper_ready_returns_before_app_is_closed(self):
         digest=hashlib.sha256(self.setup.read_bytes()).hexdigest()
@@ -128,6 +131,68 @@ class UpdateTests(unittest.TestCase):
         self.assertTrue((folder/"ready").exists())
         self.assertFalse((folder/"proceed").exists())
         self.assertTrue((self.root/"old.txt").is_file())
+
+    def test_download_completion_never_launches_helper(self):
+        digest=hashlib.sha256(self.setup.read_bytes()).hexdigest()
+        release=updates.Release("2.0.0","https://github.com/owner/repo","https://github.com/owner/repo/releases/download/v2.0.0/ULTRON-Setup.exe",digest)
+        with patch.object(download,"installed_root",return_value=self.root), \
+             patch.object(download,"download_verified",return_value=self.setup), \
+             patch.object(download.subprocess,"Popen") as spawn:
+            prepared=download.download_update(release,lambda *a:None)
+            spawn.assert_not_called()
+            self.assertEqual(prepared.path,self.setup)
+            self.assertFalse(list((self.base/"data/updates").glob("*/request.json")))
+
+    def test_delayed_restart_rechecks_download_hash(self):
+        release=updates.Release("2.0.0","https://github.com/owner/repo","fixture","0"*64)
+        prepared=download.DownloadedUpdate(release,self.base,self.root,self.setup)
+        with patch.object(download,"installed_root",return_value=self.root), \
+             patch.object(download.subprocess,"Popen") as spawn:
+            with self.assertRaises(ValueError):download.start_update(prepared,lambda *a:None)
+            spawn.assert_not_called()
+
+    @unittest.skipUnless(os.name=="nt","Windows directory handle")
+    def test_container_can_stay_open_during_component_promotion(self):
+        import time
+        ready=self.base/"child-ready"
+        child=subprocess.Popen([sys.executable,"-c","import pathlib,sys,time;pathlib.Path(sys.argv[1]).touch();time.sleep(10)",str(ready)],cwd=self.root,creationflags=subprocess.CREATE_NO_WINDOW)
+        try:
+            deadline=time.monotonic()+5
+            while not ready.exists() and time.monotonic()<deadline:time.sleep(.01)
+            self.assertTrue(ready.exists())
+            backup=self.swap()
+            self.assertIsNone(child.poll())
+            self.assertEqual((self.root/"app/ultron_entry.py").read_text(),"new")
+            self.assertEqual((backup/"app/ultron_entry.py").read_text(),"old component")
+        finally:
+            child.terminate();child.wait(timeout=5)
+
+    def test_recovery_restores_partially_promoted_components(self):
+        backup=self.root.parent/".ULTRON-backup-fixture";backup.mkdir()
+        stage=self.root.parent/".ULTRON-stage-fixture";stage.mkdir()
+        (self.root/"app").rename(backup/"app")
+        (self.root/"app").mkdir();(self.root/"app/ultron_entry.py").write_text("new")
+        journal=self.base/"data/updates/pending.json";journal.parent.mkdir(parents=True)
+        journal.write_text(json.dumps({"schema":2,"root":str(self.root),"backup":str(backup),"stage":str(stage)}))
+        with patch.object(apply,"installation_root",return_value=self.root):apply.recover_interrupted()
+        self.assertEqual((self.root/"app/ultron_entry.py").read_text(),"old component")
+        self.assertEqual((stage/"app/ultron_entry.py").read_text(),"new")
+
+    def test_failure_at_each_component_move_restores_old_files(self):
+        rename=Path.rename
+        for name in apply.COMPONENTS:
+            for phase in ("backup", "promote"):
+                with self.subTest(component=name, phase=phase):
+                    def fail_once(path,target):
+                        is_target=(path==self.root/name if phase=="backup" else path.parent.name.startswith(".ULTRON-stage-") and path.name==name)
+                        if is_target and not failed[0]:
+                            failed[0]=True
+                            raise OSError("injected move failure")
+                        return rename(path,target)
+                    failed=[False]
+                    with patch.object(Path,"rename",fail_once),self.assertRaises(OSError):self.swap()
+                    for relative in ("app/ultron_entry.py","runtime/pythonw.exe","ULTRON.exe"):
+                        self.assertEqual((self.root/relative).read_text(),"old component")
 
     def test_request_must_be_in_dedicated_update_folder(self):
         path=self.base/"request.json";path.write_text("{}")
@@ -176,6 +241,48 @@ class UpdateQtTests(unittest.TestCase):
             self.assertEqual(events,[release])
             fetch.assert_not_called()
             toast.close()
+
+    def test_ready_prompt_only_restarts_after_separate_click(self):
+        from ui_updates import UpdateToast
+        release=updates.Release("2.0.0","https://github.com/owner/repo","fixture","a"*64)
+        with patch.object(download,"installed_root",return_value=Path("fixture")):
+            toast=UpdateToast(release);events=[]
+            toast.restartRequested.connect(lambda:events.append("restart"))
+            toast.show_ready();toast.show();self.app.processEvents()
+            self.assertEqual(events,[])
+            self.assertEqual(toast.action.text(),"Reiniciar agora")
+            toast.later.click();self.app.processEvents()
+            self.assertEqual(events,[])
+            self.assertFalse(toast.isVisible())
+            toast.show();toast.action.click();self.app.processEvents()
+            self.assertEqual(events,["restart"])
+            toast.close()
+
+    def test_controller_waits_for_restart_choice_and_helper_readiness(self):
+        from PyQt6.QtWidgets import QMainWindow,QWidget
+        from ui_updates import UpdateController
+        window=QMainWindow();window.setCentralWidget(QWidget());window._ready=True
+        release=updates.Release("2.0.0","https://github.com/owner/repo","fixture","a"*64)
+        with tempfile.TemporaryDirectory() as folder, patch.object(download,"installed_root",return_value=Path(folder)), \
+             patch("ui_updates.threading.Thread"):
+            window.show();controller=UpdateController(window);controller._show(release)
+            with patch.object(window,"close") as close:
+                controller.toast.action.click()
+                prepared=download.DownloadedUpdate(release,Path(folder),Path(folder),Path(folder)/"setup.exe")
+                controller._download_ready(prepared)
+                close.assert_not_called()
+                self.assertIn("Quer reiniciar",controller.toast.status.text())
+                controller.toast.later.click()
+                close.assert_not_called()
+                self.assertFalse(controller.toast.isVisible())
+                controller.pending_button.click()
+                self.assertTrue(controller.toast.isVisible())
+                controller.toast.action.click()
+                close.assert_not_called()
+                controller.download_worker.ready.emit(Path(folder))
+                close.assert_called_once()
+                self.assertTrue((Path(folder)/"proceed").exists())
+            window.close();window.deleteLater();self.app.processEvents()
 
     def test_checks_repeat_and_never_overlap(self):
         from PyQt6.QtWidgets import QMainWindow,QWidget
