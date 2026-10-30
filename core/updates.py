@@ -15,6 +15,8 @@ from core.app_paths import resource_root, data_root
 class Release:
     version: str
     url: str
+    installer_url: str = ""
+    sha256: str = ""
 
 
 def version_key(text):
@@ -39,7 +41,16 @@ def parse_release(payload, repository, current):
         return None
     # Derive the URL instead of trusting arbitrary release HTML supplied by metadata.
     from urllib.parse import quote
-    return Release(tag.removeprefix("v"), f"https://github.com/{repository}/releases/tag/{quote(tag, safe='')}")
+    page = f"https://github.com/{repository}/releases/tag/{quote(tag, safe='')}"
+    expected = f"https://github.com/{repository}/releases/download/{quote(tag, safe='')}/ULTRON-Setup.exe"
+    for asset in payload.get("assets", []):
+        digest = str(asset.get("digest", ""))
+        if (asset.get("name") == "ULTRON-Setup.exe" and
+                asset.get("browser_download_url") == expected and
+                re.fullmatch(r"sha256:[0-9a-f]{64}", digest) and
+                0 < int(asset.get("size", 0)) <= 150 * 1024 * 1024):
+            return Release(tag.removeprefix("v"), page, expected, digest[7:])
+    return Release(tag.removeprefix("v"), page)
 
 
 def check_release(config=None, *, state_path=None, now=None):
@@ -57,8 +68,8 @@ def check_release(config=None, *, state_path=None, now=None):
         state = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         state = {}
-    interval = max(1, float(config.get("check_interval_hours", 24))) * 3600
-    if moment - state.get("checked_at", 0) < interval and state.get("repository") == repo:
+    interval = max(300, float(config.get("check_interval_minutes", 5)) * 60)
+    if moment - state.get("checked_at", 0) < interval and state.get("repository") == repo and state.get("version") == current:
         return None
     request = urllib.request.Request(f"https://api.github.com/repos/{repo}/releases/latest", headers={
         "User-Agent": "ULTRON-UpdateCheck", "Accept": "application/vnd.github+json",
@@ -72,5 +83,5 @@ def check_release(config=None, *, state_path=None, now=None):
     path.parent.mkdir(parents=True, exist_ok=True)
     # Only public timing metadata is saved. No installed version is changed here.
     from core.config_store import save_config
-    save_config({"checked_at": moment, "repository": repo}, path)
+    save_config({"checked_at": moment, "repository": repo, "version": current}, path)
     return release

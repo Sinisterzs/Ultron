@@ -53,11 +53,27 @@ upstream é presumido. Para configurar uma distribuição:
 python installer/configure_release.py --repository usuario/repositorio --version 0.1.0
 ```
 
-O aplicativo consulta somente metadados públicos do último release estável, em
-uma thread de fundo e no máximo uma vez a cada 24 horas após consulta bem-sucedida.
-Erro de rede não abre diálogo e não interrompe a conversa. Uma nova versão gera
-um cartão no canto, sem foco, que pode ser dispensado. "Ver atualização" abre a
-página oficial do release somente após clique; não há download/instalação automática.
+O aplicativo consulta o último release normal em uma thread de fundo a cada
+cinco minutos enquanto está aberto. Não toma foco nem interrompe a conversa.
+O botão **Baixar e reiniciar** exige clique explícito, baixa o asset exato do
+repositório configurado e verifica o SHA-256 dos metadados oficiais do GitHub.
+Se o asset não tiver hash verificável, oferece somente a página do release.
+
+O helper separado é o próprio Setup no modo `--apply-update`. Antes de fechar o
+app, o download espera a prontidão do helper. O app encerra pelo coordenador
+existente; o helper espera o processo sair, sem matá-lo, e adquire o lock.
+Prepara runtime/bibliotecas em uma pasta irmã antes da troca; mantém a cópia
+anterior e restaura em caso de falha na promoção. Um registro permite recuperar
+interrupção entre os renames ao executar novamente um Setup normal. Não há
+rollback automático se a nova aplicação falhar após ser iniciada. Credenciais e
+memória externas não são regravadas e o wizard não é repetido na atualização.
+São necessários espaço para duas instalações e rede para preparar dependências.
+Pastas de backup/staging ficam disponíveis para recuperação ou inspeção.
+
+Versões anteriores à 0.1.1 precisam ser substituídas uma vez pelo novo Setup;
+a publicação não pode acrescentar esse recurso a um processo antigo já aberto.
+Os executáveis continuam sem assinatura de código; o hash é uma verificação de
+integridade vinculada aos metadados HTTPS do repositório, não uma assinatura.
 
 O workflow `.github/workflows/windows-setup.yml` prepara builds no GitHub e,
 quando você envia uma tag de versão, cria um **rascunho de release** com o Setup.

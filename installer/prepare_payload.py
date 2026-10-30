@@ -9,7 +9,7 @@ from pathlib import Path
 def payload_files(root):
     root = Path(root)
     names = ["ultron_entry.py", "main.py", "launcher.py", "ui.py", "ui_setup.py", "ui_updates.py",
-             "ui_theme.py", "ui_titlebar.py", "ui_activity.py", "ui_sidebar.py", "crystal_pulse.py",
+             "ui_update_install.py", "ui_theme.py", "ui_titlebar.py", "ui_activity.py", "ui_sidebar.py", "crystal_pulse.py",
              "requirements.txt", "release_config.json", "LICENSE", "core/prompt.txt", "core/face_model.obj",
              "config/jarvis.ico"]
     for package in ("core", "actions", "plugins", "providers", "memory", "config", "dashboard"):

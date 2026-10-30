@@ -49,8 +49,13 @@ def launch_installed(root):
 
 
 def main():
+    if "--apply-update" in sys.argv:
+        from ui_update_install import run_update
+        return run_update(Path(sys.argv[sys.argv.index("--apply-update") + 1]), launch_installed)
     if "--smoke-test" in sys.argv:
         return smoke_test(Path(sys.argv[sys.argv.index("--smoke-test") + 1]))
+    from core.update_apply import recover_interrupted
+    recover_interrupted()
     if getattr(sys, "frozen", False) and Path(sys.executable).name.lower() == "ultron.exe":
         home = Path(sys.executable).parent
         if (home / "install_state.json").is_file():
@@ -143,10 +148,35 @@ def smoke_test(output):
     for name, digest in manifest["files"].items():
         if hashlib.sha256((payload / "app" / name).read_bytes()).hexdigest() != digest:
             raise RuntimeError("Payload integrity failure")
+    # Exercise the update transaction in an isolated fixture inside smoke output.
+    # Never point this check at the real installed application or credentials.
+    from core import update_apply
+    from unittest.mock import patch
+    fixture = output / "update-fixture/ULTRON"
+    fixture.mkdir(parents=True)
+    (fixture / "install_state.json").write_text('{"version":1}', encoding="utf-8")
+    (fixture / "old.txt").write_text("old fixture", encoding="utf-8")
+    def fixture_prepare(emit, cancel, *, target):
+        for name in ("runtime/pythonw.exe", "app/ultron_entry.py"):
+            path = target / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("new fixture", encoding="utf-8")
+    with patch.object(update_apply, "installation_root", return_value=fixture):
+        backup = update_apply.stage_and_swap(fixture, lambda *args: None,
+                                             prepare=fixture_prepare)
+    assert (backup / "old.txt").is_file()
+    assert (fixture / "app/ultron_entry.py").is_file()
+    from ui_update_install import build_update_window
+    updater, status, bar, cancel, stop = build_update_window()
+    status.setText("Preparando a atualização em uma pasta separada")
+    updater.show(); app.processEvents()
+    assert updater.grab().save(str(output / "updater.png"))
+    updater.running = False; updater.close()
     assert config_path().exists() == before
     (output / "report.json").write_text(json.dumps({"frozen": bool(getattr(sys, "frozen", False)),
         "payload_files_verified": len(manifest["files"]), "configuration_created": False,
-        "network_used": False, "assistant_started": False}, indent=2), encoding="utf-8")
+        "network_used": False, "assistant_started": False,
+        "update_fixture_swap_verified": True}, indent=2), encoding="utf-8")
     window.close()
     return 0
 

@@ -20,7 +20,7 @@ def main():
     version = args.version.removeprefix("v")
     version_key(version)
     (ROOT / "release_config.json").write_text(json.dumps({"version": version,
-        "github_repository": args.repository, "check_interval_hours": 24}, indent=2) + "\n", encoding="utf-8")
+        "github_repository": args.repository, "check_interval_minutes": 5}, indent=2) + "\n", encoding="utf-8")
 
 
 if __name__ == "__main__":

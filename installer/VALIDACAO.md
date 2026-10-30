@@ -61,3 +61,23 @@ extraído por AST sem importar a aplicação principal. Inspeção visual usa um
 representativo: não comprova todos os controles reais nem serviços de voz.
 A suíte total tem 113 testes. Publicação normal solicitada pelo proprietário;
 a validação completa em Windows limpo continua pendente.
+
+
+## Atualização por clique — 30/10/2026 (0.1.1)
+
+Corrigida a consulta única no boot e a espera anterior de até 24 horas. Há timer
+de cinco minutos, sem requisições sobrepostas. Adicionados download com asset e
+hash vinculados ao repositório, cancelamento, handshake e espera do processo,
+staging em pasta irmã, lock, promoção com restauração em erro e recuperação do
+intervalo entre renames. O clique conserva o encerramento existente e o launcher.
+
+Os testes usam pastas temporárias, fixtures, rede simulada e um processo Windows
+real que encerra sozinho. Exercitam falha de staging/promoção, recuperação,
+cancelamento, adulteração, falta de confirmação e emissão Qt somente por clique.
+O smoke do executável exercita troca real de pastas fictícias sem usar o app
+instalado. Ainda não houve uma atualização completa entre releases em VM limpa,
+nem validação de falhas de energia ou rollback após falha do HUD. Isso deve ser
+confirmado antes de assumir compatibilidade com todos os PCs.
+
+Resultado local final desta implementação: 126 testes passaram e o executável
+verificou 97 arquivos de payload, incluindo a troca da fixture e a prévia do helper.

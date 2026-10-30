@@ -72,7 +72,7 @@ Não usar inicialização real como se fosse um teste unitário sem efeitos.
 | `installer/` | Spec PyInstaller, script de build, configuração Inno Setup e documentação do rascunho. |
 | `bootstrap_entry.py`, `installer/Bootstrap.spec` | Setup online único: interface própria e runtime privado com bibliotecas baixadas na preparação final. |
 | `core/install_manager.py`, `core/runtime_lock.py` | Download verificado, instalação no runtime privado e bloqueio para não sobrescrever a aplicação em execução. |
-| `core/updates.py`, `ui_updates.py`, `release_config.json` | Consulta opcional de releases públicos e aviso discreto; sem instalação automática de atualização. |
+| `core/updates.py`, `ui_updates.py`, `release_config.json` | Consulta de releases, aviso discreto e atualização com clique e helper separado. |
 | `main.py` | `main()` e `JarvisLive`: áudio, sessão, ferramentas, integração com UI, reconexão e encerramento. |
 | `ui.py` | `JarvisUI`, `MainWindow`, `HudCanvas`, overlays, dispositivos, configurações e renderização. |
 | `ui_sidebar.py` | Navegação/dock; animações, cache e diagnósticos próprios. |
@@ -262,8 +262,9 @@ distribuição embeddable não encontra o backend temporário usado pelo pip.
 Preservar essa ordem e o log sanitizado `data_root()/logs/setup-install.log`. Manter o payload por allowlist e hashes. Não publicar
 nem ligar consultas a um GitHub upstream presumido: configurar o repositório
 do proprietário em `release_config.json`. O workflow produz rascunho de release.
-O cartão de atualização não pode tomar foco, bloquear a UI, baixar ou executar
-atualizações automaticamente. O usuário prefere preto puro e destaques vermelhos.
+O cartão de atualização não pode tomar foco nem bloquear a UI. O clique
+explícito em Baixar e reiniciar autoriza download verificado e helper separado;
+nunca baixar/executar sem esse clique. O usuário prefere preto puro e destaques vermelhos.
 
 Mudanças visuais precisam de inspeção da UI; testes estáticos não comprovam
 renderização, FPS, foco ou fluidez. Mudanças de áudio precisam de validação com
@@ -298,3 +299,20 @@ nessa rota, pois Ajustes pode chamar `request_page` e causar recursão. Controle
 usa o clique checkable sem pré-seleção; popups usam `popup_anchor` da célula
 pintada e devem ficar acima do dock, dentro da janela. Os testes offscreen em
 `tests/test_bottom_navigation.py` cobrem esses contratos sem iniciar o app.
+
+
+### Atualizador com clique (0.1.1)
+
+A consulta passa a repetir a cada cinco minutos enquanto o app está aberto.
+`core/update_download.py` baixa o asset exato do repositório configurado e exige
+SHA-256 informado pelo GitHub. O helper é o próprio Setup com `--apply-update`,
+executado independentemente; só fecha o app após o helper confirmar prontidão.
+O encerramento continua passando pelo CloseCoordinator, sem force kill.
+`core/update_apply.py` aguarda o processo sair, adquire o lock, prepara runtime/app
+em pasta irmã, mantém a instalação anterior e faz troca de pastas com recuperação
+em falhas de promoção. Dados e credenciais externos não entram na troca.
+O bootstrap pode recuperar uma interrupção entre renames ao executar novamente
+um Setup normal. As pastas anteriores/de preparação são mantidas, exigindo espaço
+extra; isso não implementa rollback automático de falhas após o HUD reabrir.
+A UI do helper está em `ui_update_install.py`; não importar `main` para testá-la.
+Versões antigas precisam receber esse suporte uma vez pelo Setup manual.

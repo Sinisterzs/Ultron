@@ -1,5 +1,5 @@
 {
-  "version": "0.1.0",
+  "version": "0.1.1",
   "github_repository": "Sinisterzs/Ultron",
-  "check_interval_hours": 24
+  "check_interval_minutes": 5
 }

@@ -5,8 +5,8 @@ Assistente pessoal desktop em Python/PyQt6, baseado no [MARK LVI de FatihMakes](
 ## Baixar e instalar
 
 Baixe **ULTRON-Setup.exe** em [Releases](https://github.com/Sinisterzs/Ultron/releases).
-A versão inicial é uma **prévia de testes**, sem assinatura digital. A instalação
-completa em um Windows limpo ainda precisa ser validada.
+As versões atuais são publicadas como releases normais. O executável ainda não
+tem assinatura digital; a instalação completa em Windows limpo permanece pendente.
 
 O Setup tem interface preta e vermelha e pede sua configuração inicial. Na etapa
 final, baixa um runtime Python privado e instala as bibliotecas necessárias.
@@ -18,14 +18,21 @@ própria chave Gemini e, se desejar, configura o Spotify. As credenciais são sa
 somente após a preparação, protegidas pelo Windows DPAPI para a conta local.
 Preferências e memória ficam fora da pasta instalada, na área de dados do usuário.
 
+Versões anteriores à 0.1.1 precisam receber o novo Setup manualmente uma vez
+para habilitar o atualizador. Nas atualizações futuras, não é preciso repetir
+o wizard de credenciais. A instalação anterior é mantida; é necessário espaço
+para duas instalações. A atualização completa entre versões em outro PC ainda
+precisa ser validada.
+
 ## Recursos
 
 - Conversação por voz com Gemini Live, interface holográfica e temas.
 - Áudio, push-to-talk e integrações de sistema, arquivos, busca, navegador e mídia.
 - Spotify com autorização no navegador via PKCE, sujeito às regras da API Spotify.
 - Memória persistente e dashboard remoto.
-- Aviso discreto de nova versão. O botão abre o release no GitHub; atualização
-  automática foi adiada.
+- Aviso discreto de nova versão, com consulta periódica enquanto o app está aberto.
+- Clique em Baixar e reiniciar: download verificado, fechamento coordenado,
+  preparação em pasta separada, aplicação e reabertura pelo launcher.
 
 A disponibilidade depende de credenciais, hardware, permissões e serviços externos.
 O launcher continua sendo a entrada e inicia a aplicação principal em outro processo.
