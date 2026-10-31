@@ -1,5 +1,7 @@
+from __future__ import annotations
 import json
 import sys
+from typing import Optional
 from pathlib import Path
 
 def get_base_dir() -> Path:
@@ -369,9 +371,15 @@ def save_output_device(name: str) -> None:
     _patch_config(output_device=(name or "").strip())
 
 
-def get_plugin_enabled(plugin_name: str) -> bool:
-    """Plugins are enabled by default the moment they're discovered (opt-out model)."""
-    return load_api_keys().get("plugins_enabled", {}).get(plugin_name, True)
+# Plugins that require explicit opt-in (disabled by default on fresh installs for privacy/safety)
+_OPT_IN_PLUGINS = {"smart_vision"}
+
+
+def get_plugin_enabled(plugin_name: str, default: Optional[bool] = None) -> bool:
+    """Plugins are enabled by default except privacy-sensitive ones (e.g. smart_vision)."""
+    if default is None:
+        default = False if plugin_name in _OPT_IN_PLUGINS else True
+    return load_api_keys().get("plugins_enabled", {}).get(plugin_name, default)
 
 
 # ── Per-plugin settings ("tokens" / connection details) ───────────────────────
@@ -428,6 +436,45 @@ def save_plugin_enabled(plugin_name: str, enabled: bool) -> None:
     plugins_cfg[plugin_name] = enabled
     data["plugins_enabled"] = plugins_cfg
     _save_config(data, CONFIG_FILE)
+
+
+def get_vision_permissions() -> dict:
+    """Return dictionary of persistent vision permissions: {'capture_scopes': list[str], 'send_destinations': list[str]}.
+    Does NOT store or return any images or image data."""
+    cfg = get_plugin_config("smart_vision_permissions")
+    capture_scopes = list(cfg.get("capture_scopes", []))
+    send_destinations = list(cfg.get("send_destinations", []))
+    return {
+        "capture_scopes": capture_scopes,
+        "send_destinations": send_destinations,
+    }
+
+
+def add_persistent_capture_scope(scope: str) -> None:
+    """Persist an authorized capture scope (e.g. 'screen:screen') without storing images."""
+    scope = (scope or "").strip()
+    if not scope:
+        return
+    cur = get_vision_permissions()
+    scopes = set(cur["capture_scopes"])
+    scopes.add(scope)
+    save_plugin_config("smart_vision_permissions", {"capture_scopes": sorted(scopes)})
+
+
+def add_persistent_send_destination(dest: str) -> None:
+    """Persist an authorized send destination model (e.g. 'gemini-2.5-flash') without storing images."""
+    dest = (dest or "").strip()
+    if not dest:
+        return
+    cur = get_vision_permissions()
+    dests = set(cur["send_destinations"])
+    dests.add(dest)
+    save_plugin_config("smart_vision_permissions", {"send_destinations": sorted(dests)})
+
+
+def clear_vision_persistent_permissions() -> None:
+    """Revoke and remove all persistent vision permissions from storage."""
+    save_plugin_config("smart_vision_permissions", {"capture_scopes": [], "send_destinations": []})
 
 # ── Providers: local STT/LLM/TTS and non-Gemini APIs ─────────────────────────
 # Stored here rather than in a file of their own, for the same reason plugin

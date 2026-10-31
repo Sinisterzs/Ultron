@@ -518,16 +518,21 @@ class VoidSubmenuDrawer(QWidget):
         self.open_section(name)
         return True
 
-    def open_section(self, name: str) -> None:
+    def open_section(self, name: str, *, animate: bool = True) -> None:
         if name not in self._sections:
             return
-        already_fully_open = self.is_open() and not self._animating and self._progress >= 0.999
+        already_fully_open = (self.is_open() and not self._animating and self._progress >= 0.999) or (not animate)
         self._active_section = name
         self.header_label.setText(f"{self._prefix}  //  {name}")
         self.stack.setCurrentWidget(self._sections[name])
 
         if already_fully_open:
             # Reuse the open area immediately without re-running slide animation.
+            self._target = 1.0
+            self._progress = 1.0
+            self._animating = False
+            self._anim_start = None
+            self.show()
             self.reposition()
             self.raise_()
             self.sectionChanged.emit(name)

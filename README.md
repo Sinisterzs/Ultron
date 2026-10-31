@@ -33,16 +33,13 @@ The project is under active development. Some features require your own credenti
 
 ## Patch Notes
 
-- **v0.1.8** — Correção do loop de repouso no Wake Word e instalador de modelos no runtime Windows.
-- **v0.1.7** — VOID OS interface (#000000 & expanding side panels), Shield Ruby 2.5D crystal, and reactive Audio HUD.
-- **v0.1.6** — CORE STATUS telemetry bar, collapsible news drawer, and flat vector dock.
-- **v0.1.5** — Regional search and offer verification.
-- **v0.1.4** — Compact holographic chat with auto-dismiss and distinct setup identity.
-- **v0.1.3** — Restart confirmation and Windows update promotion fix.
-- **v0.1.2** — Batched activity log typing on shared HUD clock.
-- **v0.1.1** — Integrated click-to-update helper and verified download.
+- **v0.1.9** — Holographic Plugin Control Center with in-place modular settings, Smart Vision visual perception, and smooth HUD-synchronized drawer transitions.
+- **v0.1.8** — Fixed the wake word infinite sleep loop and improved local neural model downloads on packaged Windows runtimes.
+- **v0.1.7** — Pure black VOID OS interface, Shield Ruby 2.5D crystal, and reactive audio HUD telemetry.
+- **v0.1.6** — Host telemetry status bar, collapsible news drawer, and flat vector bottom dock.
+- **v0.1.5** — Regional web search improvements and human verification gates for external actions.
 
-Detailed release notes are available in the [Releases](https://github.com/Sinisterzs/Ultron/releases) section and docs/releases/.
+Full release notes and download links are available on the [Releases](https://github.com/Sinisterzs/Ultron/releases) page.
 
 ## Installation
 

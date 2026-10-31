@@ -654,7 +654,10 @@ def _provider_call(model: str, contents, config, timeout_ms: int):
 
 
 def call(contents, tier: str = FAST, config=None,
-         timeout_ms: int = DEFAULT_TIMEOUT_MS, key: str = ""):
+         timeout_ms: int = DEFAULT_TIMEOUT_MS, key: str = "",
+         allowed_destinations: Optional[tuple[str, ...]] = None,
+         no_fallback: bool = False,
+         deadline_s: Optional[float] = None):
     """Run one generation, walking the ladder until one answers.
 
     Returns the SDK's own response object, so callers that need more than the
@@ -663,6 +666,7 @@ def call(contents, tier: str = FAST, config=None,
     a silent None during a session nobody can debug is how the original problem
     stayed hidden.
     """
+    start_t = time.monotonic()
     # `tier` is normally FAST or SMART. Anything else is taken to be an explicit
     # model name — screen_agent lets the user pick one in its settings — and it
     # is tried first, with the reasoning ladder behind it. So a user's choice is
@@ -702,9 +706,25 @@ def call(contents, tier: str = FAST, config=None,
             print("[Gemini] nothing on this ladder can read a recording")
             return None
 
+    if allowed_destinations is not None:
+        allowed_set = set(allowed_destinations)
+        ladder = tuple(m for m in ladder if m in allowed_set or any(m.endswith(a) for a in allowed_set))
+        if not ladder:
+            print(f"[Gemini] destination restricted: none of {allowed_destinations} on ladder")
+            return None
+
+    if no_fallback and ladder:
+        ladder = (ladder[0],)
+
     cl = None
     tried = [m for m in ladder if not _cooling(m)] or list(ladder)
     for model in tried:
+        if deadline_s is not None:
+            elapsed = time.monotonic() - start_t
+            if elapsed >= deadline_s:
+                print(f"[Gemini] overall deadline of {deadline_s}s exceeded")
+                break
+            timeout_ms = min(timeout_ms, int(max(MIN_TIMEOUT_MS, (deadline_s - elapsed) * 1000)))
         try:
             if model == LIVE:
                 reply = _live_call(contents, config, timeout_ms, resolved_key)
@@ -738,20 +758,32 @@ def call(contents, tier: str = FAST, config=None,
 
 
 def text(contents, tier: str = FAST, config=None,
-         timeout_ms: int = DEFAULT_TIMEOUT_MS, key: str = "", default: str = "") -> str:
+         timeout_ms: int = DEFAULT_TIMEOUT_MS, key: str = "", default: str = "",
+         allowed_destinations: Optional[tuple[str, ...]] = None,
+         no_fallback: bool = False,
+         deadline_s: Optional[float] = None) -> str:
     """`call`, reduced to the reply text. `default` when nothing answered."""
     resp = call(contents, tier=tier, config=config,
-                timeout_ms=timeout_ms, key=key)
+                timeout_ms=timeout_ms, key=key,
+                allowed_destinations=allowed_destinations,
+                no_fallback=no_fallback,
+                deadline_s=deadline_s)
     if resp is None:
         return default
     return (getattr(resp, "text", None) or "").strip() or default
 
 
 def as_json(contents, tier: str = FAST, config=None,
-            timeout_ms: int = DEFAULT_TIMEOUT_MS, key: str = "", default=None):
+            timeout_ms: int = DEFAULT_TIMEOUT_MS, key: str = "", default=None,
+            allowed_destinations: Optional[tuple[str, ...]] = None,
+            no_fallback: bool = False,
+            deadline_s: Optional[float] = None):
     """`text`, parsed as JSON, tolerating the fences and prose a model wraps it
     in. `default` when nothing answered or the answer would not parse."""
-    raw = text(contents, tier=tier, config=config, timeout_ms=timeout_ms, key=key)
+    raw = text(contents, tier=tier, config=config, timeout_ms=timeout_ms, key=key,
+               allowed_destinations=allowed_destinations,
+               no_fallback=no_fallback,
+               deadline_s=deadline_s)
     if not raw:
         return default
     if "{" in raw and "}" in raw:

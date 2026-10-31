@@ -26,6 +26,10 @@ ONE RULE IF YOUR PLUGIN NEEDS TO ASK A MODEL SOMETHING
 
 PLUGIN = {
     "name": "my_plugin",                     # snake_case, unique, ^[a-zA-Z_][a-zA-Z0-9_]{0,63}$
+    "icon": "terminal",                      # Optional: "eye", "spotify", "terminal", "code", "files", unicode glyph "👁", or image file path
+    "category": "UTILITY",                   # Optional category badge shown in UI (e.g. "VISION", "MEDIA", "SYSTEM")
+    "tags": ["LOCAL"],                       # Optional tags (e.g. ["SENSITIVE", "LOCAL", "CLOUD"])
+    "version": "v1.0",                       # Optional version string                     # snake_case, unique, ^[a-zA-Z_][a-zA-Z0-9_]{0,63}$
     "description": (
         "One or two sentences Gemini uses to decide when to call this tool. "
         "Be explicit about trigger phrases and, if it could be confused with "

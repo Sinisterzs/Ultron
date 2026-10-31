@@ -62,3 +62,11 @@ installer/previews/
 installer/generated/
 .installer-checks/
 .publication/
+
+# Internal agent context, developer guides, and local codex
+AGENTS.md
+**/AGENTS.md
+PROMPTS_CODEX.md
+**/PROMPTS_CODEX.md
+COMO_INSTALAR.md
+**/COMO_INSTALAR.md

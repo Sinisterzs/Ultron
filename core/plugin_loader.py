@@ -69,6 +69,12 @@ class PluginRecord:
     #          is in force. Nothing is deleted: Gemini still gets the full text.
     tier: Optional[str] = None
     brief: Optional[str] = None
+    runtime: Optional[Any] = None
+    default_enabled: bool = True
+    icon: Optional[str] = None
+    category: Optional[str] = None
+    tags: Optional[list[str]] = None
+    version: str = "v1.0"
 
 
 class PluginRegistry:
@@ -87,7 +93,7 @@ class PluginRegistry:
     def get_tool_declarations(self) -> list[dict]:
         decls = []
         for name, rec in self._plugins.items():
-            if get_plugin_enabled(name):
+            if get_plugin_enabled(name, default=rec.default_enabled):
                 decl = {
                     "name": rec.name,
                     "description": rec.description,
@@ -118,15 +124,28 @@ class PluginRegistry:
         rec = self._plugins.get(name)
         if rec is None or not rec.valid:
             return f"Plugin '{name}' is not available."
-        if not get_plugin_enabled(name):
+        if not get_plugin_enabled(name, default=rec.default_enabled):
             return f"The '{name}' plugin is currently disabled."
         try:
-            return _call_run(rec.run, parameters, player, session_memory) or "Done."
+            return _call_run(rec.run, parameters, player, session_memory, runtime=rec.runtime) or "Done."
         except Exception as e:
             self._logger(f"Plugin '{name}' crashed during run(): {e}")
             self._notify(f"Plugin '{name}' failed — see the console for details.")
             traceback.print_exc()
             return f"Sir, the '{name}' plugin failed: {e}"
+
+    def get_runtime(self, name: str) -> Optional[Any]:
+        rec = self._plugins.get(name)
+        return rec.runtime if rec else None
+
+    def shutdown(self) -> None:
+        """Shut down all active plugin runtimes gracefully."""
+        for rec in self._plugins.values():
+            if rec.runtime and hasattr(rec.runtime, "shutdown"):
+                try:
+                    rec.runtime.shutdown()
+                except Exception as e:
+                    self._logger(f"Error shutting down runtime for '{rec.name}': {e}")
 
     # -- called by ui.py's settings tab to render per-plugin config forms --
     def settings_schemas(self) -> list[dict]:
@@ -138,7 +157,7 @@ class PluginRegistry:
         seen: set[str] = set()
         out: list[dict] = []
         for name, rec in self._plugins.items():
-            if not rec.settings or not get_plugin_enabled(name):
+            if not rec.settings or not get_plugin_enabled(name, default=rec.default_enabled):
                 continue
             ns = rec.settings.get("namespace") or rec.name
             if ns in seen:
@@ -164,12 +183,17 @@ class PluginRegistry:
                 "file": rec.file,
                 "valid": rec.valid,
                 "error": rec.error,
-                "enabled": get_plugin_enabled(rec.name) if rec.valid else False,
+                "enabled": get_plugin_enabled(rec.name, default=rec.default_enabled) if rec.valid else False,
+                "icon": rec.icon,
+                "category": rec.category,
+                "tags": rec.tags or [],
+                "version": rec.version or "v1.0",
+                "settings": rec.settings,
             })
         return out
 
 
-def _call_run(run_fn, parameters, player, session_memory):
+def _call_run(run_fn, parameters, player, session_memory, runtime=None):
     """Invoke run() passing only the kwargs it actually declares (or all of them
     if it has **kwargs), so a minimal `def run(parameters):` plugin still works."""
     sig = inspect.signature(run_fn)
@@ -179,10 +203,12 @@ def _call_run(run_fn, parameters, player, session_memory):
         kwargs["player"] = player
     if has_var_kw or "session_memory" in sig.parameters:
         kwargs["session_memory"] = session_memory
+    if has_var_kw or "runtime" in sig.parameters:
+        kwargs["runtime"] = runtime
     return run_fn(parameters, **kwargs)
 
 
-def _validate(module, filename: str) -> PluginRecord:
+def _validate(module, filename: str, host_context: Optional[Any] = None) -> PluginRecord:
     """Returns a PluginRecord; .valid=False + .error set on any problem. Never raises."""
     plugin_meta = getattr(module, "PLUGIN", None)
     if not isinstance(plugin_meta, dict):
@@ -216,12 +242,32 @@ def _validate(module, filename: str) -> PluginRecord:
     if not (isinstance(settings, dict) and isinstance(settings.get("fields"), list)):
         settings = None
 
+    runtime = None
+    if hasattr(module, "create_runtime") and callable(module.create_runtime):
+        try:
+            runtime = module.create_runtime(host_context)
+        except Exception as e:
+            return PluginRecord(name=name, file=filename, error=f"Runtime creation failed: {e}")
+    elif hasattr(module, "get_runtime") and callable(module.get_runtime):
+        try:
+            runtime = module.get_runtime()
+        except Exception as e:
+            return PluginRecord(name=name, file=filename, error=f"get_runtime failed: {e}")
+
+    raw_tags = plugin_meta.get("tags")
+    tags = [str(t) for t in raw_tags] if isinstance(raw_tags, list) else []
     return PluginRecord(name=name, description=description.strip(), parameters=parameters,
                          run=run_fn, file=filename, valid=True, error="", settings=settings,
                          behavior=_opt_upper(plugin_meta.get("behavior"), _BEHAVIORS),
                          scheduling=_opt_upper(plugin_meta.get("scheduling"), _SCHEDULING),
                          tier=_opt_tier(plugin_meta.get("tier")),
-                         brief=_opt_text(plugin_meta.get("brief")))
+                         brief=_opt_text(plugin_meta.get("brief")),
+                         runtime=runtime,
+                         default_enabled=bool(plugin_meta.get("default_enabled", True)),
+                         icon=_opt_text(plugin_meta.get("icon")),
+                         category=_opt_text(plugin_meta.get("category")),
+                         tags=tags,
+                         version=str(plugin_meta.get("version", "v1.0")).strip() or "v1.0")
 
 
 # The app's own top-level packages. Named explicitly rather than only probed on
@@ -287,7 +333,8 @@ def _load_error(path: Path, plugins_dir: Path, exc: Exception) -> str:
 
 def discover_plugins(plugins_dir: Path, core_tool_names: set[str],
                       logger: Callable[[str], None] = print,
-                      notify: Callable[[str], None] | None = None) -> PluginRegistry:
+                      notify: Callable[[str], None] | None = None,
+                      host_context: Optional[Any] = None) -> PluginRegistry:
     """
     Scans plugins_dir for *.py files (skips files starting with '_', e.g. __init__.py,
     _template.py, and any shared-helper modules an author prefixes with '_').
@@ -316,7 +363,13 @@ def discover_plugins(plugins_dir: Path, core_tool_names: set[str],
                 sys.modules.pop(module_name, None)
                 raise
 
-            rec = _validate(module, path.name)
+            if host_context is None:
+                try:
+                    from core.plugin_runtime import HostContext
+                    host_context = HostContext(notify=notify, log=logger)
+                except Exception:
+                    host_context = None
+            rec = _validate(module, path.name, host_context=host_context)
 
             if rec.valid and rec.name in core_tool_names:
                 rec = PluginRecord(name=rec.name, file=path.name,

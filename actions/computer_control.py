@@ -462,10 +462,16 @@ def _close_app(app_name: str, confirmed_index: int | None = None) -> str:
 def _screen_find(description: str) -> tuple[int, int] | None:
     api_key = _get_api_key()
     if not api_key:
-        print("[ComputerControl] ⚠️ No API key for screen_find")
+        print("[ComputerControl] [WARN] No API key for screen_find")
         return None
 
     try:
+        from ui_vision import get_vision_bridge
+        v_bridge = get_vision_bridge()
+        if not v_bridge.request_capture_consent("screen"):
+            print("[ComputerControl] [DENIED] Screen capture denied for screen_find")
+            return None
+
         from google import genai
         from google.genai import types as gtypes
 
@@ -475,6 +481,10 @@ def _screen_find(description: str) -> tuple[int, int] | None:
         buf   = io.BytesIO()
         img.save(buf, format="PNG")
         image_bytes = buf.getvalue()
+
+        if not v_bridge.request_send_consent("screen", "gemini", image_bytes):
+            print("[ComputerControl] [DENIED] Screen transmission denied for screen_find")
+            return None
 
         prompt = (
             f"This is a screenshot of a {w}×{h} pixel screen. "
@@ -500,7 +510,7 @@ def _screen_find(description: str) -> tuple[int, int] | None:
             return int(match.group(1)), int(match.group(2))
 
     except Exception as e:
-        print(f"[ComputerControl] ⚠️ screen_find failed: {e}")
+        print(f"[ComputerControl] [WARN] screen_find failed: {e}")
 
     return None
 

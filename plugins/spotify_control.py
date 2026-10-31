@@ -243,6 +243,9 @@ def _dispatch(sp, action: str, params: dict) -> str:
 
 PLUGIN = {
     "name": "spotify_control",
+    "icon": "spotify",
+    "category": "MEDIA",
+    "version": "v1.0",
     "description": (
         "Controls Spotify playback on the user's computer — play a song/artist/"
         "album/playlist by name, pause, resume, skip, go back, change volume, "

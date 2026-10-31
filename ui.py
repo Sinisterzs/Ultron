@@ -1957,115 +1957,7 @@ class CustomizeOverlay(QWidget):
         self.hide()
 
 
-class PluginManagerOverlay(QWidget):
-    """Floating overlay — lists discovered plugins with per-plugin ON/OFF toggles."""
-
-    _OW = 420
-
-    def __init__(self, plugins: list[dict], parent=None):
-        super().__init__(parent)
-        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
-        self.setStyleSheet(f"""
-            PluginManagerOverlay {{
-                background: rgba(0, 6, 10, 245);
-                border: 1px solid {C.BORDER_B};
-                border-radius: 6px;
-            }}
-        """)
-        self.setFixedWidth(self._OW)
-
-        lay = QVBoxLayout(self)
-        lay.setContentsMargins(20, 16, 20, 16)
-        lay.setSpacing(6)
-
-        hdr = QLabel("🧩  PLUGIN MANAGER")
-        hdr.setFont(QFont("Consolas", 12, QFont.Weight.Bold))
-        hdr.setStyleSheet(f"color: {C.PRI}; background: transparent;")
-        lay.addWidget(hdr)
-        sep = QFrame(); sep.setFrameShape(QFrame.Shape.HLine)
-        sep.setStyleSheet(f"color: {C.BORDER}; margin: 2px 0;")
-        lay.addWidget(sep)
-
-        if not plugins:
-            empty = QLabel("No plugins found in /plugins.")
-            empty.setFont(QFont("Consolas", 8))
-            empty.setStyleSheet(f"color: {C.TEXT_DIM}; background: transparent;")
-            lay.addWidget(empty)
-
-        for p in plugins:
-            lay.addLayout(self._build_row(p))
-
-        lay.addSpacing(4)
-        close_btn = QPushButton("CLOSE")
-        close_btn.setFixedHeight(30)
-        close_btn.setFont(QFont("Consolas", 9))
-        close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        close_btn.setStyleSheet(f"""
-            QPushButton {{
-                background: transparent; color: {C.TEXT_MED};
-                border: 1px solid {C.BORDER}; border-radius: 3px;
-            }}
-            QPushButton:hover {{ color: {C.TEXT}; border-color: {C.BORDER_B}; }}
-        """)
-        close_btn.clicked.connect(self.hide)
-        lay.addWidget(close_btn)
-        self.adjustSize()
-
-    def _build_row(self, p: dict) -> QHBoxLayout:
-        row = QHBoxLayout(); row.setSpacing(6)
-
-        label_text = p["name"] if p["valid"] else f"{p['name']}  (⚠ {p['file']})"
-        lbl = QLabel(label_text)
-        lbl.setFont(QFont("Consolas", 8))
-        lbl.setStyleSheet(f"color: {C.TEXT if p['valid'] else C.TEXT_DIM}; background: transparent;")
-        lbl.setToolTip(p["description"] if p["valid"] else p["error"])
-        lbl.setWordWrap(False)
-        row.addWidget(lbl, stretch=1)
-
-        btn = QPushButton()
-        btn.setFixedSize(72, 24)
-        btn.setFont(QFont("Consolas", 7, QFont.Weight.Bold))
-        if not p["valid"]:
-            btn.setText("BROKEN")
-            btn.setEnabled(False)
-            btn.setStyleSheet(f"""
-                QPushButton {{
-                    background: transparent; color: {C.TEXT_DIM};
-                    border: 1px solid {C.BORDER}; border-radius: 3px;
-                }}
-            """)
-        else:
-            btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            self._style_toggle(btn, p["enabled"])
-            btn.clicked.connect(lambda _, name=p["name"], b=btn: self._toggle(name, b))
-        row.addWidget(btn)
-        return row
-
-    def _style_toggle(self, btn: QPushButton, enabled: bool):
-        if enabled:
-            btn.setText("ON")
-            btn.setStyleSheet(f"""
-                QPushButton {{
-                    background: #001a08; color: {C.GREEN};
-                    border: 1px solid {C.GREEN_D}; border-radius: 3px;
-                }}
-                QPushButton:hover {{ background: #002010; }}
-            """)
-        else:
-            btn.setText("OFF")
-            btn.setStyleSheet(f"""
-                QPushButton {{
-                    background: transparent; color: {C.TEXT_DIM};
-                    border: 1px solid {C.BORDER}; border-radius: 3px;
-                }}
-                QPushButton:hover {{ color: {C.TEXT}; border-color: {C.BORDER_B}; }}
-            """)
-
-    def _toggle(self, name: str, btn: QPushButton):
-        from memory.config_manager import get_plugin_enabled, save_plugin_enabled
-        new_val = not get_plugin_enabled(name)
-        save_plugin_enabled(name, new_val)
-        self._style_toggle(btn, new_val)
+from ui_plugins_center import PluginManagerOverlay
 
 
 class _HudOverlay(QWidget):
@@ -2168,6 +2060,109 @@ class ConfirmBanner(_HudOverlay):
         # safe answer wins.
         no.setDefault(True)
         no.setFocus()
+
+
+class VisionConsentBanner(_HudOverlay):
+    """Explicit human authorization gate for Smart Vision screen/camera access and AI transmission.
+    Offers three duration tiers:
+    - 'once': One-time ephemeral permission for this operation only.
+    - 'session': Session permission valid until application exit.
+    - 'always': Persistent permission saved to settings without storing any images.
+    - 'cancel': Deny and abort operation immediately.
+    """
+
+    answered = pyqtSignal(str)
+    _OW = 500
+
+    def __init__(self, title: str, detail: str, parent=None):
+        super().__init__(parent)
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self.setStyleSheet(f"""
+            VisionConsentBanner {{
+                background: rgba(14, 3, 0, 250);
+                border: 1px solid {C.ACC};
+                border-radius: 6px;
+            }}
+        """)
+        self.setFixedWidth(self._OW)
+
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(20, 16, 20, 16)
+        lay.setSpacing(10)
+
+        hdr = QLabel("👁  AUTORIZAÇÃO VISUAL")
+        hdr.setFont(QFont("Consolas", 11, QFont.Weight.Bold))
+        hdr.setStyleSheet(f"color: {C.ACC}; background: transparent;")
+        lay.addWidget(hdr)
+
+        ttl = QLabel(title)
+        ttl.setWordWrap(True)
+        ttl.setFont(QFont("Consolas", 10, QFont.Weight.Bold))
+        ttl.setStyleSheet(f"color: {C.TEXT}; background: transparent;")
+        lay.addWidget(ttl)
+
+        if detail:
+            dtl = QLabel(detail)
+            dtl.setWordWrap(True)
+            dtl.setFont(QFont("Consolas", 8))
+            dtl.setStyleSheet(f"color: {C.TEXT_MED}; background: transparent;")
+            lay.addWidget(dtl)
+
+        row = QHBoxLayout()
+        row.setSpacing(6)
+
+        btn_once = QPushButton("UMA VEZ")
+        btn_once.setFixedHeight(32)
+        btn_once.setFont(QFont("Consolas", 8, QFont.Weight.Bold))
+        btn_once.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn_once.setStyleSheet(f"""
+            QPushButton {{ background: transparent; color: {C.TEXT};
+                border: 1px solid {C.BORDER_B}; border-radius: 3px; }}
+            QPushButton:hover {{ background: rgba(255,107,0,30); color: {C.ACC}; border-color: {C.ACC}; }}
+        """)
+        btn_once.clicked.connect(lambda: self.answered.emit("once"))
+        row.addWidget(btn_once)
+
+        btn_session = QPushButton("NESTA SESSÃO")
+        btn_session.setFixedHeight(32)
+        btn_session.setFont(QFont("Consolas", 8, QFont.Weight.Bold))
+        btn_session.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn_session.setStyleSheet(f"""
+            QPushButton {{ background: transparent; color: {C.TEXT};
+                border: 1px solid {C.BORDER_B}; border-radius: 3px; }}
+            QPushButton:hover {{ background: rgba(255,107,0,30); color: {C.ACC}; border-color: {C.ACC}; }}
+        """)
+        btn_session.clicked.connect(lambda: self.answered.emit("session"))
+        row.addWidget(btn_session)
+
+        btn_always = QPushButton("SEMPRE")
+        btn_always.setFixedHeight(32)
+        btn_always.setFont(QFont("Consolas", 8, QFont.Weight.Bold))
+        btn_always.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn_always.setStyleSheet(f"""
+            QPushButton {{ background: transparent; color: {C.ACC};
+                border: 1px solid {C.ACC}; border-radius: 3px; }}
+            QPushButton:hover {{ background: rgba(255,107,0,50); }}
+        """)
+        btn_always.clicked.connect(lambda: self.answered.emit("always"))
+        row.addWidget(btn_always)
+
+        btn_cancel = QPushButton("CANCELAR")
+        btn_cancel.setFixedHeight(32)
+        btn_cancel.setFont(QFont("Consolas", 8))
+        btn_cancel.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn_cancel.setStyleSheet(f"""
+            QPushButton {{ background: transparent; color: {C.TEXT_MED};
+                border: 1px solid {C.BORDER}; border-radius: 3px; }}
+            QPushButton:hover {{ color: {C.TEXT}; border-color: {C.BORDER_B}; }}
+        """)
+        btn_cancel.clicked.connect(lambda: self.answered.emit(""))
+        row.addWidget(btn_cancel)
+
+        lay.addLayout(row)
+
+        btn_cancel.setDefault(True)
+        btn_cancel.setFocus()
 
 
 class AudioDeviceOverlay(_HudOverlay):
@@ -5187,7 +5182,10 @@ class _InvisibleResizeEventFilter(QObject):
         window = self._window
         if watched.window() is not window:
             return False
-        kind = event.type()
+        try:
+            kind = event.type()
+        except Exception:
+            return False
         if kind not in (QEvent.Type.MouseButtonPress,
                         QEvent.Type.MouseMove,
                         QEvent.Type.MouseButtonRelease):
@@ -5289,6 +5287,8 @@ class MainWindow(QMainWindow):
     _clipboard_sig  = pyqtSignal(str)        # clipboard text changed (thread-safe)
     _confirm_sig    = pyqtSignal(str, str)   # (title, detail) — irreversible-action gate
     _confirm_hide_sig = pyqtSignal()
+    _vision_consent_sig = pyqtSignal(str, str, object)  # (title, detail, callback)
+    _vision_consent_hide_sig = pyqtSignal()
     _wake_dl_sig    = pyqtSignal(bool, str)  # wake-word install finished (ok, message)
     _quiz_sig       = pyqtSignal(str, object, object)  # (topic, questions, grader)
     _quiz_hide_sig  = pyqtSignal()
@@ -5329,6 +5329,7 @@ class MainWindow(QMainWindow):
         self.on_voice_change   = None   # callable: () -> None — rebuild session with new voice
         self.on_audio_device_change = None  # callable: () -> None — reopen audio streams
         self._confirm_overlay  = None   # live ConfirmBanner, if one is on screen
+        self._vision_consent_overlay = None  # live vision consent banner
         self.get_plugins       = None   # callable: () -> list[dict], set by JarvisLive
         self.get_plugin_settings = None # callable: () -> list[dict] settings schemas, set by JarvisLive
         self.on_wake_toggle    = None   # callable: (enable: bool) -> str, set by JarvisLive
@@ -5752,6 +5753,8 @@ class MainWindow(QMainWindow):
         self._camera_sig.connect(self._show_camera_frame)
         self._confirm_sig.connect(self._show_confirm_banner)
         self._confirm_hide_sig.connect(self._hide_confirm_banner)
+        self._vision_consent_sig.connect(self._show_vision_consent_banner)
+        self._vision_consent_hide_sig.connect(self._hide_vision_consent_banner)
         self._cam_stream_sig.connect(self._on_cam_stream)
         self._cam_frame_sig.connect(self._on_cam_frame)
         self._wake_btns_sig.connect(self._refresh_wake_btns)
@@ -6509,6 +6512,8 @@ class MainWindow(QMainWindow):
             self._sys_drawer.reposition()
         if hasattr(self, "_int_drawer") and not self._int_drawer.isHidden():
             self._int_drawer.reposition()
+        if hasattr(self, "_plugin_manager_overlay") and self._plugin_manager_overlay and not self._plugin_manager_overlay.isHidden():
+            self._position_plugin_manager()
 
     def _position_bottom_nav(self):
         """Position the dock over content, with no reserved black layout strip."""
@@ -6551,6 +6556,8 @@ class MainWindow(QMainWindow):
                 (cw.height() - oh) // 2,
                 ow, oh,
             )
+        if hasattr(self, "_plugin_manager_overlay") and self._plugin_manager_overlay and not self._plugin_manager_overlay.isHidden():
+            self._position_plugin_manager()
         # Camera preview — bottom-right corner of the center/HUD area
         pw = _CameraPreview._W
         ph = self._cam_preview.height() or _CameraPreview._H
@@ -6975,7 +6982,6 @@ class MainWindow(QMainWindow):
         "Motor": "CORE",
         "Voz": "VOICE",
         "Memória": "MEMORY",
-        "Plugins": "PLUGINS",
     }
 
     _VOID_TABLE_QSS = (
@@ -7026,8 +7032,18 @@ class MainWindow(QMainWindow):
 
     def _on_nav_page_requested(self, name: str) -> None:
         self._close_controls()
+        if name == "Plugins":
+            if hasattr(self, "_sys_drawer") and self._sys_drawer.is_open():
+                self._sys_drawer.close_submenu(immediate=True)
+                self._left_primary.set_active_section(None)
+            self._open_plugin_manager()
+            return
         sys_sec = self._NAV_TO_SYSTEM_SECTION.get(name)
         if sys_sec is not None:
+            if hasattr(self, "_plugin_manager_overlay") and self._plugin_manager_overlay is not None and not self._plugin_manager_overlay.isHidden():
+                self._plugin_manager_overlay.hide()
+                if hasattr(self, "_left_primary"):
+                    self._left_primary.set_active_section(None)
             self._pages.setCurrentIndex(0)
             self._bottom_nav.set_active("Início")
             self._open_left_section(sys_sec)
@@ -7035,6 +7051,10 @@ class MainWindow(QMainWindow):
         if name in self._bottom_nav.PAGES:
             idx = self._bottom_nav.PAGES.index(name)
             if idx != 0:
+                if hasattr(self, "_plugin_manager_overlay") and self._plugin_manager_overlay is not None and not self._plugin_manager_overlay.isHidden():
+                    self._plugin_manager_overlay.hide()
+                    if hasattr(self, "_left_primary"):
+                        self._left_primary.set_active_section(None)
                 if hasattr(self, "_sys_drawer") and self._sys_drawer.is_open():
                     self._sys_drawer.close_submenu(immediate=True)
                     self._left_primary.set_active_section(None)
@@ -7045,6 +7065,11 @@ class MainWindow(QMainWindow):
 
     def _on_escape_pressed(self) -> None:
         closed_any = False
+        if hasattr(self, "_plugin_manager_overlay") and self._plugin_manager_overlay is not None and not self._plugin_manager_overlay.isHidden():
+            self._plugin_manager_overlay.close_drawer(immediate=True)
+            if hasattr(self, "_left_primary") and self._left_primary.active_section() == "PLUGINS":
+                self._left_primary.set_active_section(None)
+            closed_any = True
         if hasattr(self, "_sys_drawer") and self._sys_drawer.is_open():
             self._sys_drawer.close_submenu()
             self._left_primary.set_active_section(None)
@@ -7082,13 +7107,36 @@ class MainWindow(QMainWindow):
         needed = self._sys_drawer.full_open_width() + self._int_drawer.full_open_width() + 28
         return inner_gap < needed
 
+    def _is_any_left_panel_open(self) -> bool:
+        if hasattr(self, "_sys_drawer") and self._sys_drawer.is_open():
+            return True
+        ov = getattr(self, "_plugin_manager_overlay", None)
+        if ov is not None and not ov.isHidden() and ov.is_open():
+            return True
+        return False
+
     def _on_left_section_clicked(self, name: str) -> None:
         self._close_controls()
+        was_open = self._is_any_left_panel_open()
+        if name == "PLUGINS":
+            ov = getattr(self, "_plugin_manager_overlay", None)
+            if ov is not None and not ov.isHidden() and ov.is_open():
+                ov.close_drawer()
+                if hasattr(self, "_left_primary"):
+                    self._left_primary.set_active_section(None)
+                return
+            if hasattr(self, "_sys_drawer") and self._sys_drawer.is_open():
+                self._sys_drawer.close_submenu(immediate=True)
+            self._open_plugin_manager(animate=not was_open)
+            return
+        ov = getattr(self, "_plugin_manager_overlay", None)
+        if ov is not None and not ov.isHidden():
+            ov.close_drawer(immediate=True)
         if self._sys_drawer.is_open() and self._sys_drawer.active_section() == name:
             self._sys_drawer.close_submenu()
             self._left_primary.set_active_section(None)
             return
-        self._open_left_section(name)
+        self._open_left_section(name, animate=not was_open)
 
     def _on_right_section_clicked(self, name: str) -> None:
         self._close_controls()
@@ -7098,13 +7146,23 @@ class MainWindow(QMainWindow):
             return
         self._open_right_section(name)
 
-    def _open_left_section(self, name: str) -> None:
+    def _open_left_section(self, name: str, *, animate: bool = True) -> None:
+        if name == "PLUGINS":
+            was_open = self._is_any_left_panel_open()
+            if hasattr(self, "_sys_drawer") and self._sys_drawer.is_open():
+                self._sys_drawer.close_submenu(immediate=True)
+                self._left_primary.set_active_section(None)
+            self._open_plugin_manager(animate=not was_open)
+            return
+        ov = getattr(self, "_plugin_manager_overlay", None)
+        if ov is not None and not ov.isHidden():
+            ov.close_drawer(immediate=True)
         if hasattr(self, "_int_drawer") and self._int_drawer.is_open() and self._would_submenus_collide():
             self._int_drawer.close_submenu()
             self._right_primary.set_active_section(None)
         self._left_primary.set_active_section(name)
-        self._sys_drawer.open_section(name)
-        if name in ("MEMORY", "PLUGINS"):
+        self._sys_drawer.open_section(name, animate=animate)
+        if name == "MEMORY":
             self._refresh_void_list(name)
         elif name == "VOICE":
             self._refresh_wake_btns()
@@ -7425,24 +7483,9 @@ class MainWindow(QMainWindow):
         l_mem.addWidget(_tune_btn(self._memory_btn))
         self._sys_drawer.add_section("MEMORY", s_mem)
 
-        # ── 5. SYSTEM // PLUGINS ─────────────────────────────────────────────
-        s_plug, l_plug = _make_section()
-        self._plugins_table_status = QLabel("Runtime modules — read-only", s_plug)
-        self._plugins_table_status.setWordWrap(True)
-        self._plugins_table_status.setStyleSheet("color: #8d8d9a; background: transparent; font: 9px 'Consolas';")
-        l_plug.addWidget(self._plugins_table_status)
-
-        self._plugins_table = QTableWidget(0, 4, s_plug)
-        self._plugins_table.setHorizontalHeaderLabels(("Type", "Name", "Description", "State"))
-        self._plugins_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        self._plugins_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        self._plugins_table.verticalHeader().hide()
-        self._plugins_table.horizontalHeader().setStretchLastSection(True)
-        self._plugins_table.setStyleSheet(self._VOID_TABLE_QSS)
-        l_plug.addWidget(self._plugins_table, 1)
-        l_plug.addWidget(_tune_btn(self._plugins_btn))
-        l_plug.addWidget(_tune_btn(self._plugin_settings_btn))
-        self._sys_drawer.add_section("PLUGINS", s_plug)
+        # 5. PLUGINS: Replaced by the holographic Plugin Control Center overlay
+        self._plugins_table_status = None
+        self._plugins_table = None
 
         # ── 6. INTERACTION // COMMANDS ───────────────────────────────────────
         s_cmd, l_cmd = _make_section()
@@ -7643,7 +7686,7 @@ class MainWindow(QMainWindow):
     def _refresh_active_void_lists(self) -> None:
         if hasattr(self, "_sys_drawer") and self._sys_drawer.is_open():
             sec = self._sys_drawer.active_section()
-            if sec in ("MEMORY", "PLUGINS"):
+            if sec == "MEMORY":
                 self._refresh_void_list(sec)
         if hasattr(self, "_int_drawer") and self._int_drawer.is_open():
             if self._int_drawer.active_section() == "TOOLS":
@@ -7662,9 +7705,11 @@ class MainWindow(QMainWindow):
                     (str(r["category"]), str(r["key"]), str(r["value"]), str(r["updated"]))
                     for r in records
                 ]
-                status.setText(f"{len(rows)} fatos armazenados — somente leitura")
+                if status is not None:
+                    status.setText(f"{len(rows)} fatos armazenados — somente leitura")
             except Exception as exc:
-                status.setText(f"Memória indisponível: {exc}")
+                if status is not None:
+                    status.setText(f"Memória indisponível: {exc}")
                 rows = []
             if getattr(table, "_displayed_rows", None) != rows:
                 table.setRowCount(len(rows))
@@ -7697,6 +7742,7 @@ class MainWindow(QMainWindow):
                 unavailable.append(f"{kind}: {exc}")
 
         if section_name == "PLUGINS":
+            return
             table = self._plugins_table
             status = self._plugins_table_status
             status.setText(
@@ -9245,34 +9291,79 @@ class MainWindow(QMainWindow):
         except Exception as e:
             self._log.append_log(f"ERR: Confirmation failed — {e}")
 
-    def _open_plugin_manager(self):
-        plugins = self.get_plugins() if self.get_plugins else []
-        cw = self.centralWidget()
-        ov = PluginManagerOverlay(plugins, parent=cw)
-        ov.adjustSize()
-        ov.setGeometry(
-            (cw.width()  - ov.width())  // 2,
-            (cw.height() - ov.height()) // 2,
-            ov.width(), ov.height(),
-        )
-        ov.show()
-        ov.raise_()
-        self._plugin_manager_overlay = ov   # keep a reference so it isn't GC'd
+    def _show_vision_consent_banner(self, title: str, detail: str, callback: object):
+        self._hide_vision_consent_banner()
+        ov = VisionConsentBanner(title, detail, parent=self.centralWidget())
+        ov.answered.connect(lambda choice: self._on_vision_consent_answered(choice, callback))
+        self._centre_overlay(ov)
+        self._vision_consent_overlay = ov
 
-    def _open_plugin_settings(self):
-        sections = self.get_plugin_settings() if self.get_plugin_settings else []
-        cw = self.centralWidget()
-        ov = PluginSettingsOverlay(sections, parent=cw)
-        ow = PluginSettingsOverlay._OW
-        oh = min(560, cw.height() - 16)
-        ov.setGeometry(
-            (cw.width()  - ow) // 2,
-            (cw.height() - oh) // 2,
-            ow, oh,
-        )
-        ov.show()
-        ov.raise_()
-        self._plugin_settings_overlay = ov   # keep a reference so it isn't GC'd
+    def _hide_vision_consent_banner(self):
+        ov = getattr(self, "_vision_consent_overlay", None)
+        if ov is not None:
+            ov.hide()
+            ov.deleteLater()
+            self._vision_consent_overlay = None
+
+    def _on_vision_consent_answered(self, choice: str, callback: object):
+        self._hide_vision_consent_banner()
+        if callable(callback):
+            try:
+                callback(str(choice))
+            except Exception as e:
+                self._log.append_log(f"ERR: Vision consent callback failed — {e}")
+
+    def _position_plugin_manager(self):
+        ov = getattr(self, "_plugin_manager_overlay", None)
+        if ov is None or ov.isHidden():
+            return
+        ov.reposition()
+
+    def _open_plugin_manager(self, *, animate: bool = True):
+        if hasattr(self, "_plugin_manager_overlay") and self._plugin_manager_overlay is not None:
+            if not self._plugin_manager_overlay.isHidden() and self._plugin_manager_overlay.is_open():
+                self._plugin_manager_overlay.close_drawer()
+                if hasattr(self, "_left_primary"):
+                    self._left_primary.set_active_section(None)
+                return
+        # Mutually exclusive: close any open drawer submenus so they never get covered
+        if hasattr(self, "_sys_drawer") and self._sys_drawer.is_open():
+            self._sys_drawer.close_submenu(immediate=True)
+            if hasattr(self, "_left_primary"):
+                self._left_primary.set_active_section(None)
+        if hasattr(self, "_int_drawer") and self._int_drawer.is_open():
+            self._int_drawer.close_submenu(immediate=True)
+            if hasattr(self, "_right_primary"):
+                self._right_primary.set_active_section(None)
+
+        plugins = self.get_plugins() if self.get_plugins else []
+        home = getattr(self, "_home_page", None) or self.centralWidget()
+        if hasattr(self, "_plugin_manager_overlay") and self._plugin_manager_overlay is not None:
+            try:
+                self._plugin_manager_overlay.close_drawer(immediate=True)
+                self._plugin_manager_overlay.setParent(None)
+                self._plugin_manager_overlay.deleteLater()
+            except Exception:
+                pass
+        anchor = getattr(self, "_left_primary", None)
+        ov = PluginManagerOverlay(plugins, anchor_panel=anchor, parent=home)
+        self._plugin_manager_overlay = ov
+        if hasattr(self, "hud") and self.hud is not None:
+            ov.bind_hud_clock(self.hud)
+        ov.open_drawer(animate=animate)
+        if hasattr(self, "_left_primary"):
+            self._left_primary.set_active_section("PLUGINS")
+            def _on_overlay_closed():
+                if hasattr(self, "_left_primary") and self._left_primary.active_section() == "PLUGINS":
+                    self._left_primary.set_active_section(None)
+            ov.closed.connect(_on_overlay_closed)
+
+    def _open_plugin_settings(self, target_ns: str = ""):
+        if not hasattr(self, "_plugin_manager_overlay") or self._plugin_manager_overlay is None or self._plugin_manager_overlay.isHidden():
+            self._open_plugin_manager()
+        if hasattr(self, "_plugin_manager_overlay") and self._plugin_manager_overlay is not None:
+            self._plugin_manager_overlay.show_settings(target_ns)
+            self._position_plugin_manager()
 
     # ── Clipboard intelligence ───────────────────────────────────────────────────
 
@@ -9511,6 +9602,32 @@ class JarvisUI:
     def hide_confirm(self) -> None:
         """Thread-safe: take the gate down."""
         self._win._confirm_hide_sig.emit()
+
+    def request_vision_consent(self, title: str, detail: str, timeout_s: float = 30.0) -> str:
+        """Thread-safe request for visual consent on HUD. Returns 'once', 'session', 'always', or '' (denied/timed out)."""
+        win = getattr(self, "_win", None)
+        if win is None:
+            return ""
+        import threading
+        evt = threading.Event()
+        res = [""]
+
+        def _cb(choice: str):
+            c = str(choice).strip().lower()
+            res[0] = c if c in ("once", "session", "always") else ""
+            evt.set()
+
+        try:
+            win._vision_consent_sig.emit(str(title)[:120], str(detail)[:300], _cb)
+        except Exception:
+            return ""
+
+        evt.wait(timeout=timeout_s)
+        try:
+            win._vision_consent_hide_sig.emit()
+        except Exception:
+            pass
+        return res[0]
 
     @property
     def get_plugins(self):

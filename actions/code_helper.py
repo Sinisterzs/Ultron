@@ -444,6 +444,11 @@ Optimized code:"""
 
 def _screen_debug_action(description, file_path, player, speak=None) -> str:
 
+    from ui_vision import get_vision_bridge
+    v_bridge = get_vision_bridge()
+    if not v_bridge.request_capture_consent("screen"):
+        return "Screen capture for code debugging was not authorized on the HUD."
+
     if player:
         player.write_log("[Code] Taking screenshot for analysis...")
 
@@ -465,6 +470,8 @@ def _screen_debug_action(description, file_path, player, speak=None) -> str:
         from google.genai import types
 
         image_bytes  = screenshot_path.read_bytes()
+        if not v_bridge.request_send_consent("screen", "gemini", image_bytes):
+            return "Screen transmission for code debugging was not authorized on the HUD."
         image_base64 = _image_to_base64(screenshot_path)
 
         user_question = description or "What error or problem do you see on the screen? How can it be fixed?"

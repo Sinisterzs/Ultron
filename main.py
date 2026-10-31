@@ -387,11 +387,9 @@ TOOL_DECLARATIONS = [
     {
         "name": "screen_process",
         "description": (
-            "Captures the screen or webcam image and lets you analyze it. "
-            "MUST be called when user asks what is on screen, what you see, "
-            "look at camera, analyze my screen, etc. "
-            "You have NO visual ability without this tool. "
-            "After the image is captured it is sent directly to you — describe what you see and answer the user's question. "
+            "Captures the screen or webcam image and lets you analyze it with explicit user consent on the HUD. "
+            "Call when user asks what is on screen or to look at camera. "
+            "After the image is captured and authorized, it is sent to you — describe what you see and answer the user's question. "
             "When using camera: the live view stays open until user says close it or calls close_camera."
         ),
         "parameters": {
@@ -441,9 +439,8 @@ TOOL_DECLARATIONS = [
         "name": "shutdown_jarvis",
         "description": (
             "Shuts down the assistant completely. "
-            "Call this when the user expresses intent to end the conversation, "
-            "close the assistant, say goodbye, or stop Jarvis. "
-            "The user can say this in ANY language."
+            "Call this ONLY when the user explicitly expresses intent to power off, shut down, exit, or terminate the assistant completely (e.g. 'desligar Jarvis', 'encerrar o assistente', 'sair do Ultron', 'shutdown'). "
+            "Do NOT call this if the user asks to close a window, close a tab, close settings, close an overlay dialog, or maximize/minimize."
         ),
         "parameters": {
             "type": "OBJECT",
@@ -1399,32 +1396,45 @@ class JarvisLive:
                     print(f"[Vision] ⏳ Cooldown active ({_wait:.1f}s remaining) — ignoring duplicate call")
                     result = "Vision is still processing the previous request. I will not call this again."
                 else:
-                    self._vision_busy      = True
-                    self._vision_last_time = _now
                     angle     = args.get("angle", "screen").lower()
                     user_text = args.get("text", "What do you see?")
-                    if angle == "camera":
-                        img_b, mime_t = await loop.run_in_executor(None, _capture_camera)
-                        self.ui.start_camera_stream()
-                        self._vision_cam_active = True
-                        print(f"[Vision] 📷 Camera: {len(img_b):,} bytes")
-                        _stall = "camera"
-                    else:
-                        img_b, mime_t = await loop.run_in_executor(None, _capture_screen)
-                        print(f"[Vision] 🖥️  Screen: {len(img_b):,} bytes")
-                        _stall = "screen"
-                    self._pending_vision = (img_b, mime_t, user_text, angle)
-                    # The image is attached to this same exchange, so there is
-                    # nothing to stall for and nothing to announce. Asking for an
-                    # acknowledgement here is what produced two spoken answers —
-                    # the model filled that turn by answering the question from
-                    # imagination, then answered it again once it could see.
-                    result = (
-                        f"[VISION_ACTIVE] {_stall.capitalize()} captured and attached to this "
-                        f"same exchange. Do not acknowledge and do not answer yet — the image "
-                        f"is arriving with this result. Reply once, from what you actually see "
-                        f"in it."
+                    from ui_vision import get_vision_bridge
+                    v_bridge = get_vision_bridge()
+                    target_label = "camera" if angle == "camera" else "screen"
+
+                    capture_ok = await loop.run_in_executor(
+                        None,
+                        lambda: v_bridge.request_capture_consent(target_label, timeout_s=15.0, source=target_label)
                     )
+                    if not capture_ok:
+                        print(f"[Vision] ❌ {target_label.capitalize()} capture consent denied by user")
+                        result = (f"I cannot access your {target_label} because capture authorization "
+                                  f"was not granted on the HUD.")
+                    else:
+                        self._vision_busy      = True
+                        self._vision_last_time = _now
+                        if angle == "camera":
+                            img_b, mime_t = await loop.run_in_executor(None, _capture_camera)
+                            self.ui.start_camera_stream()
+                            self._vision_cam_active = True
+                            print(f"[Vision] 📷 Camera: {len(img_b):,} bytes")
+                            _stall = "camera"
+                        else:
+                            img_b, mime_t = await loop.run_in_executor(None, _capture_screen)
+                            print(f"[Vision] 🖥️  Screen: {len(img_b):,} bytes")
+                            _stall = "screen"
+                        self._pending_vision = (img_b, mime_t, user_text, angle)
+                        # The image is attached to this same exchange, so there is
+                        # nothing to stall for and nothing to announce. Asking for an
+                        # acknowledgement here is what produced two spoken answers —
+                        # the model filled that turn by answering the question from
+                        # imagination, then answered it again once it could see.
+                        result = (
+                            f"[VISION_ACTIVE] {_stall.capitalize()} captured and attached to this "
+                            f"same exchange. Do not acknowledge and do not answer yet — the image "
+                            f"is arriving with this result. Reply once, from what you actually see "
+                            f"in it."
+                        )
 
             elif name == "close_camera":
                 self.ui.stop_camera_stream()
@@ -1460,8 +1470,12 @@ class JarvisLive:
                         except Exception:
                             pass
                     await asyncio.sleep(1.5)
-                    import os as _os
-                    _os._exit(0)
+                    from PyQt6.QtCore import QMetaObject, Qt
+                    if hasattr(self.ui, "_win") and self.ui._win is not None:
+                        QMetaObject.invokeMethod(self.ui._win, "close", Qt.ConnectionType.QueuedConnection)
+                    else:
+                        import sys
+                        sys.exit(0)
                 asyncio.create_task(_do_shutdown())
 
             elif self._action_registry.has(name):
@@ -1662,11 +1676,31 @@ class JarvisLive:
         if not (self._pending_vision and self.session):
             return False
 
-        import base64 as _b64
         img_b, mime_t, question, angle = self._pending_vision
         self._pending_vision = None
+
+        from ui_vision import get_vision_bridge
+        v_bridge = get_vision_bridge()
+        target_label = "camera" if angle == "camera" else "screen"
+        dest_model = getattr(self, "_active_model_name", "gemini-live")
+        loop = asyncio.get_event_loop()
+
+        send_ok = await loop.run_in_executor(
+            None,
+            lambda: v_bridge.request_send_consent(target_label, dest_model, img_b, timeout_s=20.0)
+        )
+        if not send_ok:
+            print(f"[Vision] ❌ Transmission of {target_label} to {dest_model} was denied by user. Frame discarded.")
+            if self._vision_cam_active:
+                self._vision_cam_active = False
+                self._vision_close_pending = True
+            else:
+                self._vision_busy = False
+            return False
+
+        import base64 as _b64
         b64 = _b64.b64encode(img_b).decode("ascii")
-        print(f"[Vision] 📤 {len(img_b):,} bytes (angle={angle}) → main session")
+        print(f"[Vision] 📤 {len(img_b):,} bytes (angle={angle}) → main session ({dest_model})")
 
         # Label the source. Without it the image arrives carrying nothing but
         # the user's own sentence, and a screenshot of this app — which has a
@@ -2408,6 +2442,12 @@ class JarvisLive:
         actual uvicorn.Server instance if one is exposed; do not assume a
         private attribute or suppress errors from real execution.
         """
+        if getattr(self, "_plugin_registry", None):
+            try:
+                self._plugin_registry.shutdown()
+            except Exception as exc:
+                print(f"[Shutdown] Plugin registry shutdown error: {exc}")
+
         if self._dashboard_commands_task is not None:
             self._dashboard_commands_task.cancel()
             try:
@@ -2455,6 +2495,8 @@ class JarvisLive:
             hide = self.ui.hide_confirm,
             log  = self.ui.write_log,
         )
+        from ui_vision import bind_ui
+        bind_ui(self.ui)
         set_trim_notifier(self.ui.write_log)
 
         # Tell the device picker the exact rates the streams open at, from the
