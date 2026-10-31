@@ -290,7 +290,11 @@ class SetupOverlay(QWidget):
             self.next.setText("Tentar novamente  →")
             self.progress_bar.setRange(0, 100); self.progress_bar.setValue(0)
             from core.app_paths import data_root
-            self.log_button.setVisible((data_root() / "logs/setup-install.log").is_file())
+            try:
+                has_log = (data_root() / "logs/setup-install.log").is_file()
+            except OSError:
+                has_log = False
+            self.log_button.setVisible(has_log)
 
     def _cancel_preparation(self):
         if self._worker:

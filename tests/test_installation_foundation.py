@@ -136,6 +136,15 @@ class WizardTests(unittest.TestCase):
         cls.app = QApplication.instance() or QApplication([])
         cls.widget_class = SetupOverlay
 
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.patch_env = patch.dict(os.environ, {'ULTRON_DATA_DIR': self.temp_dir.name})
+        self.patch_env.start()
+
+    def tearDown(self):
+        self.patch_env.stop()
+        self.temp_dir.cleanup()
+
     def test_navigation_requires_key_and_only_emits_on_final_confirmation(self):
         window = self.widget_class()
         captured = []
