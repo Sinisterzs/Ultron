@@ -9,6 +9,8 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PIL import Image
 from PyQt6.QtWidgets import QApplication
 from core import app_icon
+from core.install_manager import verified_launcher
+import hashlib
 
 
 class AppIconTests(unittest.TestCase):
@@ -36,6 +38,28 @@ class AppIconTests(unittest.TestCase):
                     self.assertTrue(app_icon.apply_app_icon(self.app))
                     self.assertFalse(self.app.windowIcon().isNull())
                 path.unlink()
+
+    def test_setup_and_application_icons_are_distinct(self):
+        with Image.open(self.root / "config/setup.ico") as image:
+            self.assertIn((256, 256), image.ico.sizes())
+        with patch.object(app_icon, "resource_root", return_value=self.root):
+            self.assertTrue(app_icon.apply_app_icon(self.app))
+            application = self.app.windowIcon().pixmap(32, 32).toImage()
+            self.assertTrue(app_icon.apply_app_icon(self.app, setup=True))
+            setup = self.app.windowIcon().pixmap(32, 32).toImage()
+            self.assertNotEqual(application, setup)
+
+    def test_separate_launcher_is_verified_and_legacy_payloads_remain_supported(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            path = root / "ULTRON.exe"
+            path.write_bytes(b"app launcher fixture")
+            manifest = {"launcher_sha256": hashlib.sha256(path.read_bytes()).hexdigest()}
+            self.assertEqual(verified_launcher(root, manifest), path)
+            path.write_bytes(b"corrupted fixture")
+            with self.assertRaises(ValueError):
+                verified_launcher(root, manifest)
+            self.assertIsNone(verified_launcher(root, {}))
 
 
 if __name__ == "__main__":

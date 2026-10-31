@@ -33,6 +33,20 @@ jobs:
       - name: Build single setup
         shell: pwsh
         run: ./installer/build-online.ps1
+      - name: Verify executable icons and isolated setup startup
+        shell: pwsh
+        run: |
+          python installer/verify_icons.py
+          $smoke = Join-Path $env:GITHUB_WORKSPACE '.installer-checks/smoke'
+          $env:ULTRON_DATA_DIR = Join-Path $env:GITHUB_WORKSPACE '.installer-checks/data'
+          $process = Start-Process -FilePath './dist/ULTRON-Setup.exe' -ArgumentList @('--smoke-test', $smoke) -WindowStyle Hidden -PassThru
+          if (-not $process.WaitForExit(120000)) { throw 'Setup smoke test timed out.' }
+          if ($process.ExitCode -ne 0) {
+            if (Test-Path "$smoke/error.txt") { Get-Content "$smoke/error.txt" }
+            throw 'Setup smoke test failed.'
+          }
+          $report = Get-Content "$smoke/report.json" | ConvertFrom-Json
+          if (-not $report.frozen -or -not $report.separate_launcher_verified) { throw 'Incomplete smoke report.' }
       - uses: actions/upload-artifact@v6
         with:
           name: ULTRON-Windows-Setup

@@ -11,7 +11,7 @@ def main():
         app = QApplication(sys.argv)
         app.setStyle("Fusion")
         from core.app_icon import apply_app_icon
-        apply_app_icon(app)
+        apply_app_icon(app, setup=True)
         window = SetupOverlay(preview=True)
         window.resize(960, 660)
         window.setWindowTitle("ULTRON — Prévia da primeira configuração")

@@ -131,7 +131,9 @@ def stage_and_swap(root, emit, cancel=lambda: False, *, prepare=None, setup=None
     with application_lock():
         prepare(emit, cancel, target=stage)
         check_cancelled(cancel)
-        shutil.copy2(setup, stage / "ULTRON.exe")
+        if not (stage / "ULTRON.exe").is_file():
+            # Legacy payloads used the Setup itself as the installed launcher.
+            shutil.copy2(setup, stage / "ULTRON.exe")
         shutil.copy2(root / "install_state.json", stage / "install_state.json")
         for relative in ("runtime/pythonw.exe", "app/ultron_entry.py", "ULTRON.exe"):
             if not (stage / relative).is_file():

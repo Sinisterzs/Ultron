@@ -4,23 +4,6 @@ Referência inicial para entender e alterar este repositório. Conferido por lei
 do código em **29/10/2026**. Este documento não comprova funcionamento de serviços
 externos nem substitui a leitura dos arquivos envolvidos na alteração.
 
-## Política operacional do Codex
-
-Estas regras complementam os contratos técnicos abaixo; não substituem segurança, autorização humana nem validação.
-
-- Execute tarefas pequenas diretamente. Para mudanças complexas, planeje em poucos passos e mantenha o plano atualizado somente quando necessário.
-- Antes de editar, consulte `git status --short` e o diff pertinente. Preserve trabalho local, inclusive arquivos não rastreados.
-- Limite a leitura a arquivos afetados, chamadores, contratos e testes relevantes. Não faça varreduras repetitivas sem evidência de necessidade.
-- Faça a menor alteração coerente que resolva a causa; não expanda escopo ou refatore módulos não relacionados.
-- Tenha autonomia para mudanças reversíveis dentro do pedido. Peça autorização antes de apagar dados, substituir mudanças do usuário, publicar, fazer push, criar release/tag, executar operações externas sensíveis ou mudar escopo significativamente.
-- Execute testes direcionados proporcionais ao risco e informe o que foi ou não validado. Não execute aplicações, instaladores, downloads ou integração real como simples teste.
-- Em tarefas interrompidas, identifique o que já foi concluído por meio do estado do repositório e dos resultados disponíveis; não recomece nem repita testes sem necessidade.
-- Conclua ao atingir o objetivo e validar o escopo; não continue refinando indefinidamente.
-- Resumo final conciso: alterações, arquivos, testes/resultados, riscos e pendências. Não afirme sucesso sem evidências.
-- Economia de tokens é secundária à correção, segurança e clareza. Evite relatar raciocínio extenso ou executar ferramentas redundantes, mas não omita verificações necessárias.
-
-**Escopo de instruções:** arquivos `AGENTS.md` em `core/`, `installer/` e `tests/` detalham regras específicas. Ao trabalhar nessas áreas, leia o arquivo correspondente se ainda não estiver no contexto da sessão; regras específicas complementam esta política sem revogar controles de segurança.
-
 ## 1. O que o aplicativo faz
 
 É um assistente pessoal desktop em Python, com interface holográfica PyQt6.
@@ -86,48 +69,6 @@ Não usar inicialização real como se fosse um teste unitário sem efeitos.
 | `ultron_entry.py` | Entrada empacotável: sem argumentos abre launcher; `--app` inicia o principal; `--preview-setup` abre somente a prévia do wizard. |
 | `ui_setup.py` | Wizard de primeira configuração; emite dados apenas ao concluir, sem iniciar voz por si só. |
 | `core/app_paths.py`, `core/config_store.py` | Recursos/dados separados e armazenamento atômico de configuração com credenciais protegidas. |
-| `core/ip_geolocation.py` | Localização aproximada por IP, lazy e em cache de memória, usada apenas como pista regional de pesquisa. |
-| `core/location_preferences.py`, `core/location_settings.py` | Preferência regional confirmada, moeda derivada do país por Qt/CLDR e cartão de localização em Ajustes. |
-| `core/search_sources.py` | Perfis de domínio por assunto/país para buscas de ofertas e imóveis, sem inferir reputação ou confirmação de preço. |
-
-Pesquisas `search`/`price` classificadas como hardware/imóveis usam perfis BR:
-KaBuM/Terabyte/Amazon e QuintoAndar/ZAP/VivaReal, respectivamente. DDG recebe
-filtro de domínios e os resultados são novamente filtrados por hostname exato
-ou subdomínio; perfil vazio de resultados não expande para agregadores/lojas
-desconhecidas. `expand_sources=true` exige pedido explícito do usuário.
-`site` explícito prevalece; `country` explícito ou país nomeado na consulta
-prevalece à preferência manual/IP. País/assunto sem perfil recebe busca
-regional identificada como sem perfil conhecido; notícias não usam o perfil.
-Não prometer portais populares de cada cidade nem confundir preferência de
-domínio com oferta/pagamento verificado. Módulo incluído por `core/*.py`.
-
-`get_search_location()` prioriza a preferência manual em `search_location`,
-salva com `core.config_store.update_config` preservando os outros campos e a
-proteção de credenciais. Sem override, usa o IP aproximado. Cidade, estado
-opcional e país são confirmados pelo usuário; moeda não é editável, deriva
-da base CLDR do Qt. Não deduzir cidade física por idioma/fuso. Ajustes consulta
-localização e salva/reset em worker ao exibir/interagir com o cartão; sem
-rede no import/boot ou thread Qt. Voltar ao automático limpa o override.
-O contexto regional continua subordinado à região explícita na pesquisa.
-Os módulos ficam em `core/*.py`, já cobertos pela allowlist do payload.
-| `core/offer_verifier.py` | Verificação HTTP limitada de ofertas específicas por HTML/JSON-LD, sem navegador, credenciais ou armazenamento de páginas. |
-
-O verificador limita a resposta recebida a 750 KB e a descompressão gzip a
-3 MB, respeita charset declarado e recusa codificações não suportadas. A
-extração HTML reconhece campos da oferta principal Amazon BR e o vendedor
-explicitamente declarado na KaBuM, complementando JSON-LD. Condição de
-pagamento só acompanha o preço quando está no mesmo pequeno bloco e o valor
-coincide; na ausência dessa evidência retorna `payment_condition=not confirmed`.
-Somas de parcelas usam Decimal em `calculated_total`, explicitamente calculado;
-`declared_total` é reservado ao total rotulado pela loja. KaBuM pode fornecer
-`embedded_regular_price`, com identidade/vendedor/preço Pix/parcelas conferidos
-no `__NEXT_DATA__`; divergências de arredondamento são preservadas.
-Timeout de 5 s é por operação de socket,
-não um prazo global de toda pesquisa; estoque/checkout não são comprovados.
-Os adaptadores `_amazon_offer`/`_kabum_offer` compartilham a validação `_offer`.
-Amazon associa os blocos irmãos da oferta principal ao ASIN do widget de
-parcelamento; valores de parcela e total declarado seguem em `installments`,
-separados de `cash_price`/`cash_methods`, sem calcular total por multiplicação.
 | `installer/` | Spec PyInstaller, script de build, configuração Inno Setup e documentação do rascunho. |
 | `bootstrap_entry.py`, `installer/Bootstrap.spec` | Setup online único: interface própria e runtime privado com bibliotecas baixadas na preparação final. |
 | `core/install_manager.py`, `core/runtime_lock.py` | Download verificado, instalação no runtime privado e bloqueio para não sobrescrever a aplicação em execução. |
@@ -441,14 +382,14 @@ sem main/ui, configuração pessoal ou áudio. `tools/benchmark_hud_rendering.py
 compara o caminho direto anterior com o cache em fixture offscreen e grava em
 `tools/reports/hud-cache/`; aceita `--seconds` entre 1 e 30 por cenário.
 
-### Ícones do aplicativo e do Setup (registro histórico; rever após mudanças)
+### Ícone compartilhado (melhoria local)
 
-Na inspeção anterior, o desenho indicado pelo usuário estava em `config/jarvis.png`; `jarvis.ico` era uma
+O desenho indicado pelo usuário está em `config/jarvis.png`; `jarvis.ico` é uma
 conversão ICO real com tamanhos 16–256, preservando o PNG original. Não apenas
-renomear PNG para ICO. O registro anterior indicava que `core/app_icon.py` aplicava o mesmo recurso ao app, launcher,
+renomear PNG para ICO. `core/app_icon.py` aplica o mesmo recurso ao app, launcher,
 Setup e helper; no bootstrap procura também `payload/app/config/jarvis.ico`.
-Na inspeção anterior, os specs e o Inno usavam esse ICO; o atalho criado pelo Setup online referencia
-o ícone instalado em `app/config`. A separação posterior dos ícones do Setup e do aplicativo estava em andamento; conferir o diff atual antes de editar. Esses recursos só passam a um novo executável
+Os specs e o Inno já usam esse ICO; o atalho criado pelo Setup online referencia
+o ícone instalado em `app/config`. Esses recursos só passam a um novo executável
 ou instalador após um build expressamente autorizado. Não gerar Setup/publicar
 como efeito colateral da mudança de asset.
 
@@ -487,6 +428,48 @@ filhos (balões, scrollbar, Ler mais, minimizar) o renovam. Novas mensagens de
 conversa reexibem o painel sem limpar o histórico; mensagens SYS não o reabrem.
 Câmera/vídeo continuam respeitando a ocultação do chat. O estado LISTENING por
 si só não conta como fala: ele também representa silêncio com o microfone ativo.
+
+### Release 0.1.5 — pesquisa regional e evidências de oferta
+
+Publicação autorizada pelo usuário. `core/search_sources.py` seleciona fontes
+por país/assunto para `search` e `price`; domínios são filtrados após DDG e não
+há fallback automático fora do perfil conhecido. Site/país explícitos prevalecem;
+`expand_sources` exige pedido explícito. Perfis atuais BR: hardware e imóveis.
+`core/ip_geolocation.py` consulta IP somente ao pesquisar/exibir Ajustes, com
+timeout/cache; `get_search_location` prioriza override confirmado persistido
+via `core/config_store`. `core/location_settings.py` usa worker Qt; a moeda
+deriva do país por Qt/CLDR. Não registrar IP/coordenadas nem gravar cidade sem
+confirmação. Os novos módulos entram pela allowlist `core/*.py` existente.
+`core/offer_verifier.py` limita HTTP, gzip e redirects, fixa IP público validado,
+preserva Host/TLS e não usa cookies/proxies. Amazon/KaBuM complementam JSON-LD
+com campos da oferta principal. Evidências continuam conteúdo não confiável.
+Preço, vendedor, moeda e condições precisam pertencer à mesma oferta;
+`declared_total`, `calculated_total` (Decimal) e `embedded_regular_price` têm
+significados distintos. Nunca garantir checkout/estoque por metadados da página.
+As suítes não devem ser repetidas nesta publicação por instrução do usuário.
+
+### Release 0.1.4 e ícones distintos
+
+O usuário autorizou expressamente o build e a publicação desta atualização.
+`config/jarvis.ico`/`jarvis.png` continuam sendo a marca do aplicativo;
+`config/setup.ico`/`setup.png` usam o emblema com engrenagem escolhido para o
+Setup. `apply_app_icon(..., setup=True)` é reservado ao Setup e ao helper.
+
+O Setup não deve mais ser copiado sobre o executável com marca do app. O build
+gera primeiro `installer/Launcher.spec` a partir de `installed_entry.py`: um
+executável pequeno sem Qt, que usa `core/installed_launcher.py` para iniciar o
+runtime privado com o mesmo saneamento de ambiente/busca de DLLs já validado.
+Depois `Bootstrap.spec` inclui esse launcher em `payload/ULTRON.exe`, com hash
+em `manifest.launcher_sha256`, além das fontes/assets por allowlist. A preparação
+verifica o launcher antes de downloads/escritas; a promoção preserva o executável
+preparado. O fallback de copiar o Setup permanece somente para payloads antigos.
+
+`installer/verify_icons.py` compara recursos RT_ICON dos dois PEs com os ICOs,
+sem executar os binários. O workflow faz essa verificação e o smoke test isolado
+do Setup antes de produzir o rascunho de release. Publicar o rascunho continua
+sendo uma etapa explícita, autorizada nesta solicitação. O README canônico é
+`README.md`; o anterior foi preservado em `docs/installation.md`, removendo a
+colisão de nomes README.md/readme.md em sistemas Windows.
 
 ### Release 0.1.6 — CORE STATUS, painel de notícias retrátil e dock vetorial plano
 

@@ -33,6 +33,19 @@ def check_cancelled(cancel):
         raise InstallationCancelled("Preparação cancelada. Você pode tentar novamente.")
 
 
+def verified_launcher(bundle, manifest):
+    """Verify the separately branded executable before any download/write."""
+    digest = manifest.get("launcher_sha256")
+    if digest is None:
+        return None  # backward-compatible source fixtures/older payloads
+    source = Path(bundle) / "ULTRON.exe"
+    if (not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest)
+            or source.is_symlink() or not source.is_file()
+            or hashlib.sha256(source.read_bytes()).hexdigest() != digest):
+        raise ValueError("O executável do aplicativo não passou na verificação de integridade.")
+    return source
+
+
 def checked_child(root: Path, relative: str) -> Path:
     rel = PurePosixPath(relative.replace("\\", "/"))
     if rel.is_absolute() or ".." in rel.parts or ":" in relative:
@@ -209,6 +222,9 @@ def _install(emit, cancel=lambda: False, *, bundle_root=None, target=None, brows
     app = target / "app"
     emit("Verificando os arquivos do aplicativo", 0, 0)
     verified = []
+    launcher = verified_launcher(bundle, manifest)
+    if launcher is not None:
+        verified.append((launcher, target / "ULTRON.exe"))
     for relative, digest in manifest["files"].items():
         check_cancelled(cancel)
         source = checked_child(bundle / "app", relative)

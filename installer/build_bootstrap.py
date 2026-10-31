@@ -12,4 +12,5 @@ from PyInstaller.__main__ import run
 if __name__ == "__main__":
     os.chdir(ROOT)
     os.environ.setdefault("PYINSTALLER_CONFIG_DIR", str(ROOT / ".build-tools/pyinstaller-cache"))
+    run(["--noconfirm", str(ROOT / "installer/Launcher.spec")])
     run(["--noconfirm", str(ROOT / "installer/Bootstrap.spec")])
