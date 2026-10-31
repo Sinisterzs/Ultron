@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="190" viewBox="0 0 1200 190" role="img" aria-label="ULTRON Personal AI System">
+  <rect width="1200" height="190" fill="#08090b"/>
+  <rect x="24" y="23" width="3" height="144" fill="#ff304d"/>
+  <path d="M43 23H1176M43 167H1176" stroke="#47131d" stroke-width="1"/>
+  <path d="M1040 23h136v27" stroke="#ff304d" stroke-width="2" fill="none"/>
+  <path d="M43 167h135" stroke="#ff304d" stroke-width="2"/>
+  <text x="74" y="111" font-family="Arial, Helvetica, sans-serif" font-weight="800" font-size="78" letter-spacing="10" fill="#ff304d">ULTRON</text>
+  <text x="79" y="143" font-family="Consolas, 'Courier New', monospace" font-size="17" letter-spacing="7" fill="#a65a69">PERSONAL AI SYSTEM</text>
+  <text x="1163" y="148" text-anchor="end" font-family="Consolas, 'Courier New', monospace" font-size="13" letter-spacing="3" fill="#bd485c">WINDOWS  /  AI</text>
+  <path d="M1010 93h158M1050 100h118M1090 107h78" stroke="#4e1520" stroke-width="1"/>
+</svg>
