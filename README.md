@@ -31,6 +31,18 @@ The project is under active development. Some features require your own credenti
 - **Memory:** Persistent information and a remote dashboard.
 - **Updates:** In-app update checks and downloads, with confirmation before restarting.
 
+## Patch Notes
+
+- **v0.1.7** — VOID OS interface (#000000 & expanding side panels), Shield Ruby 2.5D crystal, and reactive Audio HUD.
+- **v0.1.6** — CORE STATUS telemetry bar, collapsible news drawer, and flat vector dock.
+- **v0.1.5** — Regional search and offer verification.
+- **v0.1.4** — Compact holographic chat with auto-dismiss and distinct setup identity.
+- **v0.1.3** — Restart confirmation and Windows update promotion fix.
+- **v0.1.2** — Batched activity log typing on shared HUD clock.
+- **v0.1.1** — Integrated click-to-update helper and verified download.
+
+Detailed release notes are available in the [Releases](https://github.com/Sinisterzs/Ultron/releases) section and docs/releases/.
+
 ## Installation
 
 Download **`ULTRON-Setup.exe`** from the [Releases](https://github.com/Sinisterzs/Ultron/releases) page.
