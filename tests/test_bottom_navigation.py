@@ -61,10 +61,9 @@ class NavigationTests(unittest.TestCase):
 
     def click_cell(self, name):
         from ui_sidebar import PAGES
-        point = self.nav._view.item.hit_areas[PAGES.index(name)].boundingRect().center()
-        scene = self.nav._view.item.mapToScene(point)
-        QTest.mouseClick(self.nav._view.viewport(), Qt.MouseButton.LeftButton,
-                        pos=self.nav._view.mapFromScene(scene))
+        view = self.nav._view
+        point = view._cell(PAGES.index(name)).center().toPoint()
+        QTest.mouseClick(view, Qt.MouseButton.LeftButton, pos=point)
         self.app.processEvents()
 
     def test_settings_navigation_never_reemits_compatibility_click(self):

@@ -502,6 +502,13 @@ def web_search(
             found = _compare(items, aspect)
         elif mode == "news":
             found = _news(query)
+            # Painel gráfico de notícias; falha de UI nunca invalida a pesquisa.
+            show = getattr(player, "show_content", None)
+            if callable(show) and found and not found.startswith("No news found"):
+                try:
+                    show(f"NEWS - {query or 'top world news today'}", found)
+                except Exception:
+                    pass
         elif mode == "research":
             found = _research(query)
         elif mode == "price":

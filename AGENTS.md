@@ -470,3 +470,7 @@ do Setup antes de produzir o rascunho de release. Publicar o rascunho continua
 sendo uma etapa explícita, autorizada nesta solicitação. O README canônico é
 `README.md`; o anterior foi preservado em `docs/installation.md`, removendo a
 colisão de nomes README.md/readme.md em sistemas Windows.
+
+### Release 0.1.6 — CORE STATUS, painel de notícias retrátil e dock vetorial plano
+
+Publicação autorizada pelo usuário. `ui_core_status.py` (`CoreStatusPanel`) fica no topo da coluna central da home e usa `HudCanvas.pacedFrame`, sem `QTimer` próprio. O seletor `47/60 FPS` foi movido para a página `MOTOR` e o texto `HUD xx.x/47 FPS` não é mais pintado no `HudCanvas`. `ui_news.py` (`NewsBriefingPanel`) apresenta o briefing e buscas `mode="news"` recolhido com 2 itens ou expandido com lista rolável. `ui_dock.py` (`FlatDock`) substitui a projeção curva por um dock vetorial plano em `BottomNavBar`, alinhado ao centro horizontal de `_hud_cam_stack` em modo janela e maximizado e preservando o cursor de clique sobre os ícones. `ui_core_status.py`, `ui_news.py` e `ui_dock.py` integram a allowlist de `installer/prepare_payload.py`.

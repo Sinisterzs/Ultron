@@ -1172,13 +1172,7 @@ class HudCanvas(QWidget):
             self._fps_reading = self._fps_frames / _fps_elapsed
             self._fps_frames = 0
             self._fps_since = _fps_now
-        p.save()
-        p.setPen(QColor(160, 63, 72))
-        p.setFont(QFont("Consolas", 9, QFont.Weight.Bold))
-        p.drawText(QRectF(10, 9, max(85, W - 20), 18),
-                   Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
-                   f"HUD {self._fps_reading:.1f}/{self._fps_target} FPS" if self._fps_reading else f"HUD --/{self._fps_target} FPS")
-        p.restore()
+        # A leitura aparece no painel CORE STATUS (RENDER); sem texto avulso no HUD.
 
         _D22G.hud_draw_ns.append((time.perf_counter_ns()-_d22g_hud_start)/1_000_000)
 
@@ -5193,6 +5187,7 @@ class _InvisibleResizeEventFilter(QObject):
         self._start_global = None
         self._start_rect = None
         self._cursor_widget = None
+        self._saved_cursor = None
 
     @staticmethod
     def _edge_cursor(edges):
@@ -5262,11 +5257,29 @@ class _InvisibleResizeEventFilter(QObject):
             cursor = self._edge_cursor(edges)
             if kind == QEvent.Type.MouseMove:
                 if cursor is not None:
+                    if self._cursor_widget is not watched:
+                        if self._cursor_widget is not None:
+                            if self._saved_cursor is not None:
+                                self._cursor_widget.setCursor(self._saved_cursor)
+                            else:
+                                self._cursor_widget.unsetCursor()
+                        self._saved_cursor = (
+                            watched.cursor()
+                            if watched.testAttribute(Qt.WidgetAttribute.WA_SetCursor)
+                            else None
+                        )
+                        self._cursor_widget = watched
                     watched.setCursor(cursor)
-                    self._cursor_widget = watched
-                elif self._cursor_widget is watched:
-                    watched.unsetCursor()
-                    self._cursor_widget = None
+                else:
+                    if self._cursor_widget is not None:
+                        if self._saved_cursor is not None:
+                            self._cursor_widget.setCursor(self._saved_cursor)
+                        else:
+                            self._cursor_widget.unsetCursor()
+                        self._cursor_widget = None
+                        self._saved_cursor = None
+                    if window.testAttribute(Qt.WidgetAttribute.WA_SetCursor):
+                        window.unsetCursor()
                 return False
 
             if kind == QEvent.Type.MouseButtonPress and event.button() == Qt.MouseButton.LeftButton and edges:
@@ -5654,6 +5667,7 @@ class MainWindow(QMainWindow):
         self._log.bind_hud_clock(self.hud)
         self._right_perspective = PerspectiveSideView(self._right_panel, "right")
         body.addWidget(self._right_perspective, stretch=0)
+        home_layout.addLayout(body, stretch=1)
         from ui_chat import HoloChat
         self._chat = HoloChat(self._hud_cam_stack, accent=lambda: C.PRI, parent=self._home_page)
         self._chat.bind_hud_clock(self.hud)
@@ -5661,7 +5675,17 @@ class MainWindow(QMainWindow):
         self._log.entry_progress.connect(self._chat.update_entry)
         self._hud_cam_stack.currentChanged.connect(self._chat.on_page_changed)
         self._chat.show()
-        home_layout.addLayout(body, stretch=1)
+        from ui_core_status import CoreStatusPanel
+        self._core_status = CoreStatusPanel(
+            self._hud_cam_stack, accent=lambda: C.PRI, parent=self._home_page)
+        self._core_status.bind_hud_clock(self.hud)
+        self._hud_cam_stack.currentChanged.connect(self._core_status.on_page_changed)
+        self._core_status.show()
+        from ui_news import NewsBriefingPanel
+        self._news = NewsBriefingPanel(
+            self._hud_cam_stack, accent=lambda: C.PRI, parent=self._home_page)
+        self._hud_cam_stack.currentChanged.connect(self._news.on_page_changed)
+        self._bottom_nav.align_to(self._hud_cam_stack)
         # Footer removido da composição principal da home (D18.1E):
         # a dock inferior agora é a única peça flutuante nessa região.
         # Os textos auxiliares ([F4] Mute · [F11] Fullscreen, By FatihMakes)
@@ -6438,15 +6462,26 @@ class MainWindow(QMainWindow):
         # The fixed gutter shifts the HUD centre about half its width only
         # while maximized; keeping it in the layout avoids per-frame work.
         if self.isMaximized() or self.isFullScreen():
-            desired = 72
+            desired = max(72, self._right_perspective.maximumWidth() - self._left_perspective.maximumWidth())
         else:
             desired = 0
-        if desired == self._jarvis_gutter_width:
-            return
-        self._jarvis_gutter_width = desired
-        self._jarvis_alignment_gutter.changeSize(
-            desired, 0, QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Minimum)
-        self._jarvis_body_layout.invalidate()
+        if desired != self._jarvis_gutter_width:
+            self._jarvis_gutter_width = desired
+            self._jarvis_alignment_gutter.changeSize(
+                desired, 0, QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Minimum)
+            self._jarvis_body_layout.invalidate()
+        if cw.layout() is not None:
+            cw.layout().activate()
+        if hasattr(self, '_home_page') and self._home_page.layout() is not None:
+            self._home_page.layout().activate()
+        self._jarvis_body_layout.activate()
+        self._position_bottom_nav()
+        if hasattr(self, "_core_status"):
+            self._core_status.reposition()
+        if hasattr(self, "_news") and self._news.isVisible():
+            self._news.reposition()
+        if hasattr(self, "_chat") and self._chat.isVisible():
+            self._chat.reposition()
 
     def _position_bottom_nav(self):
         """Position the dock over content, with no reserved black layout strip."""
@@ -6460,13 +6495,14 @@ class MainWindow(QMainWindow):
         nav.update_viewport_width(cw.width())
         nav.setGeometry(0, max(0, cw.height() - nav.height()),
                         max(0, cw.width()), nav.height())
+        nav._reposition()
         nav.raise_()
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
         cw = self.centralWidget()
-        self._position_bottom_nav()
         self._align_jarvis_to_viewport()
+        self._position_bottom_nav()
         if self._overlay and self._overlay.isVisible():
             ow, oh = min(960, cw.width() - 24), min(660, cw.height() - 24)
             self._overlay.setGeometry(
@@ -6982,7 +7018,8 @@ class MainWindow(QMainWindow):
         definitions = (
             ("Motor", "Configure os provedores de IA e os dispositivos de áudio.",
              (("Engine e provedores", (self._providers_btn,)),
-              ("Dispositivos de áudio", (self._audio_btn,)))),
+              ("Dispositivos de áudio", (self._audio_btn,)),
+              ("Taxa de atualização do HUD (47 ou 60 FPS)", (self.hud._fps_button,)))),
             ("Plugins", "Consulte plugins e actions carregados; gerencie-os nos painéis existentes.",
              (("Gerenciamento", (self._plugins_btn, self._plugin_settings_btn)),)),
             ("Memória", "Pesquise os fatos locais armazenados, sem editar esta lista.",
@@ -7339,6 +7376,17 @@ class MainWindow(QMainWindow):
     def _show_content(self, title: str, text: str):
         """Slot — runs on Qt main thread. Updates and shows the content panel."""
         import time as _time
+        # Notícias estruturadas vão para o painel gráfico; texto livre (ou outro
+        # assunto) continua no painel de conteúdo tradicional.
+        if title.upper().startswith("NEWS"):
+            from ui_news import parse_news_text
+            news_items = parse_news_text(text)
+            if news_items:
+                self.hud.glance(0.0, -0.85, hold=1.3)
+                self._content_panel.hide()
+                self._news.show_news(news_items)
+                return
+        self._news.hide_news()
         # The panel opens below the head, so the head looks down at it. It is a
         # tiny thing that answers "did that land?" before you read a word.
         self.hud.glance(0.0, -0.85, hold=1.3)
@@ -7378,6 +7426,7 @@ class MainWindow(QMainWindow):
 
     def _show_review(self, title: str, summary: str, findings, unclear):
         """Slot — Qt main thread. Lays a document review into the content panel."""
+        self._news.hide_news()
         e = self._esc
         parts = [f'<div style="color:{C.TEXT}; font-family:Consolas;">']
 

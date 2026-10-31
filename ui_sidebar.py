@@ -867,9 +867,9 @@ class BottomNavBar(QWidget):
     pageRequested = pyqtSignal(str)
     PAGES = tuple(PAGES[:-1])
     # D24.12: compact dock; no reserved opaque footer or giant 142px layer.
-    DOCK_W = 684
-    DOCK_MIN_W = 410
-    DOCK_VIEWPORT_RATIO = 0.53
+    DOCK_W = 556
+    DOCK_MIN_W = 420
+    DOCK_VIEWPORT_RATIO = 0.48
     DOCK_H = 104
 
     def __init__(self, user_name="", parent=None):
@@ -878,6 +878,7 @@ class BottomNavBar(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         self.setAutoFillBackground(False)
         self._available_w = 980
+        self._anchor = None
         # The main UI calls .clicked.connect on Ajustes and Controles.
         # Keep real Qt signals while the visible dock is drawn on one scene.
         self.buttons = {}
@@ -886,33 +887,37 @@ class BottomNavBar(QWidget):
             b.setCheckable(True)
             b.hide()
             self.buttons[name] = b
-        self._view = _IntegratedDockView(self._on_choice, self)
-        self._view.item.selected = 0
+        from ui_dock import FlatDock
+        self._view = FlatDock(parent=self)
+        self._view.chosen.connect(self._on_choice)
         from core.app_paths import data_root
         self._diag_path = data_root() / "logs" / "d24_18_cached_dock_diagnostics.csv"
         self._dock_w = 0
         self._reposition()
-        self._shortcut = QShortcut(QKeySequence("Ctrl+Alt+L"), self)
-        self._shortcut.setContext(Qt.ShortcutContext.WindowShortcut)
-        self._shortcut.activated.connect(self.toggle_energy)
 
     def bind_hud_clock(self, hud):
-        """D24.17: reuse HudCanvas's frame signal, no dock timer."""
+        """Compatibilidade: o dock plano não anima, então não assina o relógio."""
         self._hud_clock = hud
-        hud.pacedFrame.connect(self._on_hud_tick)
+        if self._anchor is None and hud is not None:
+            self.align_to(hud.parentWidget() or hud)
 
-    def _on_hud_tick(self, now):
-        self._view._animate(now)
-        # Capture comparisons by window mode every 10 seconds without a timer.
-        if now - getattr(self, '_last_diag', 0.0) >= 10.0:
-            self._last_diag = now
-            self._log_sample('periodic_10s')
+    def align_to(self, anchor):
+        """Alinha o centro horizontal do dock ao centro do HUD quando visível."""
+        self._anchor = anchor
+        node = anchor
+        while node is not None:
+            node.installEventFilter(self)
+            if node is self.parentWidget():
+                break
+            node = node.parentWidget()
+        self._reposition()
 
-    def toggle_energy(self):
-        self._view.item.toggle_travel()
-        self._view._last_dirty_rects = []
-        self._view.item.update()  # clear former glow immediately, once
-        self._log_sample('toggle_energy')
+    def eventFilter(self, watched, event):
+        if watched is not self and event.type() in (
+                QEvent.Type.Resize, QEvent.Type.Move, QEvent.Type.Show,
+                QEvent.Type.Hide, QEvent.Type.LayoutRequest):
+            self._reposition()
+        return False
 
     def _on_choice(self, name):
         if name not in self.buttons:
@@ -936,18 +941,13 @@ class BottomNavBar(QWidget):
         for name, button in self.buttons.items():
             button.setChecked(name == page)
         if page in PAGES:
-            self._view.item.selected = PAGES.index(page)
-            self._view.item._labels_pixmap = None
-            self._view.item.update()
+            self._view.selected = PAGES.index(page)
+            self._view.update()
 
     def popup_anchor(self, name, parent):
         """Map the painted dock cell to a widget coordinate for popups."""
         index = PAGES.index(name)
-        cell = self._view.item.hit_areas[index].boundingRect()
-        point = QPointF(cell.center().x(), cell.top())
-        scene_point = self._view.item.mapToScene(point)
-        viewport_point = self._view.mapFromScene(scene_point)
-        return self._view.viewport().mapTo(parent, viewport_point)
+        return self._view.mapTo(parent, self._view.popup_anchor_local(index).toPoint())
 
     def update_viewport_width(self, width):
         width = max(1, int(width))
@@ -964,19 +964,23 @@ class BottomNavBar(QWidget):
         if available <= 0:
             return
         width = min(self.DOCK_W, max(self.DOCK_MIN_W, int(available*self.DOCK_VIEWPORT_RATIO)), max(320, available-12))
-        if self._dock_w != width:
-            self._dock_w = width
-            self._view.set_dock_width(width)
-        # Dock drifts slightly left in window mode; centered on maximized.
-        win = self.window()
-        maximized = bool(win and win.isMaximized())
-        shift = 0 if maximized else -min(54, max(0, available-width)//3)
-        x = max(0, (available-width)//2 + shift)
+        self._dock_w = width
+        if self._anchor is not None and self._anchor.isVisible() and self._anchor.width() > 0:
+            global_center = self._anchor.mapToGlobal(self._anchor.rect().center())
+            cx = self.mapFromGlobal(global_center).x()
+            x = max(0, min(available - width, cx - width // 2))
+        else:
+            win = self.window()
+            maximized = bool(win and (win.isMaximized() or win.isFullScreen()))
+            shift = 0 if (maximized or self._anchor is None) else -min(50, max(0, (available - width) // 2))
+            x = max(0, (available - width) // 2 + shift)
         if self._view.geometry() != QRect(x, 0, width, self.DOCK_H):
             self._view.setGeometry(x, 0, width, self.DOCK_H)
 
     def _log_sample(self, reason):
-        item = self._view.item
+        item = getattr(self._view, "item", None)
+        if item is None:      # dock plano: sem amostras de pintura/animação
+            return
         samples = item.samples[-250:]
         if not samples:
             return
