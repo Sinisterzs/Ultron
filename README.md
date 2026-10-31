@@ -1,68 +1,51 @@
 <div align="center">
 
-# U L T R O N
+<img src="docs/assets/ultron-header.svg" alt="ULTRON — Personal AI System" width="100%">
 
-**PERSONAL AI SYSTEM**
+**Assistente pessoal de IA para Windows.**  
+Voz em tempo real, interface holográfica e automações para o desktop.
 
-*Inteligência artificial para o seu desktop.*
+![Windows](https://img.shields.io/badge/Windows-111111?style=flat-square&logo=windows11&logoColor=ff304d)
+![Python](https://img.shields.io/badge/Python-111111?style=flat-square&logo=python&logoColor=ff304d)
+![PyQt6](https://img.shields.io/badge/PyQt6-111111?style=flat-square&logo=qt&logoColor=ff304d)
+![Gemini](https://img.shields.io/badge/Gemini_Live-111111?style=flat-square&logo=googlegemini&logoColor=ff304d)
 
-<img src="docs/assets/crystal-pulse.webp" alt="Crystal Pulse — emblema animado do ULTRON inspirado no launcher" width="700" />
-
-**Windows** &nbsp;·&nbsp; **Python / PyQt6** &nbsp;·&nbsp; **Gemini Live**
-
-[**Download**](https://github.com/Sinisterzs/Ultron/releases) &nbsp;·&nbsp; [**Documentação**](docs/) &nbsp;·&nbsp; [**Código-fonte**](https://github.com/Sinisterzs/Ultron)
+[**Download**](https://github.com/Sinisterzs/Ultron/releases) · [**Documentação**](docs/) · [**Código-fonte**](https://github.com/Sinisterzs/Ultron)
 
 </div>
 
 ---
 
-## Visão geral
+## Sobre
 
-**ULTRON** é um assistente pessoal para Windows com interface holográfica, interação por voz e ferramentas de automação. Construído em Python e PyQt6, é uma evolução personalizada do [MARK LVI, de FatihMakes](https://github.com/FatihMakes/Mark-LVI).
+**ULTRON** é um assistente desktop desenvolvido em **Python/PyQt6**, baseado no [MARK LVI, de FatihMakes](https://github.com/FatihMakes/Mark-LVI). Combina conversação por voz, interface personalizável e integrações com ferramentas e serviços do Windows.
 
-O objetivo é reunir conversação, integrações e controles do desktop em uma experiência única, com identidade visual própria e foco em responsividade.
+O projeto está em desenvolvimento. Algumas funções dependem de credenciais próprias, permissões do sistema e serviços externos.
 
 ## Funcionalidades
 
-| Sistema | Recursos |
-|:--|:--|
-| **Inteligência e voz** | Conversação com Gemini Live, áudio e push-to-talk. |
-| **Interface** | HUD holográfico, Crystal Pulse, temas e launcher dedicado. |
-| **Automação** | Ferramentas para sistema, arquivos, navegador, busca e mídia. |
-| **Integrações** | Spotify com autorização via PKCE, conforme as condições da API. |
-| **Memória** | Persistência de informações e dashboard remoto. |
-| **Distribuição** | Instalador para Windows x64 e mecanismo integrado de atualização. |
-
-> A disponibilidade de cada recurso depende de credenciais, serviços externos, hardware e permissões. O projeto continua em desenvolvimento.
+- **Voz e IA:** conversação com Gemini Live e suporte a push-to-talk.
+- **Interface:** HUD holográfico, temas e animações.
+- **Automações:** integração com sistema, arquivos, navegador e mídia.
+- **Extensões:** plugins e integração opcional com Spotify via PKCE.
+- **Memória:** persistência de informações e dashboard remoto.
+- **Atualizações:** verificação de novas versões e download pelo aplicativo, com confirmação antes de reiniciar.
 
 ## Instalação
 
-**Windows x64** · Conexão com a internet necessária na instalação.
+Baixe o **`ULTRON-Setup.exe`** na página de [Releases](https://github.com/Sinisterzs/Ultron/releases).
 
-1. Acesse a página de [**Releases**](https://github.com/Sinisterzs/Ultron/releases).
-2. Baixe o arquivo **`ULTRON-Setup.exe`** da versão desejada.
-3. Execute o instalador e siga a configuração inicial.
-4. Informe sua **própria chave Gemini** quando solicitada. A configuração do Spotify é opcional.
+O instalador prepara um runtime Python privado e as dependências necessárias. **É preciso conexão com a internet**, mas não é necessário instalar Python manualmente. O navegador Chromium para automação web é opcional.
 
-O instalador prepara um runtime Python privado e instala as dependências; não é necessário instalar Python manualmente. O Chromium usado na automação web é um download opcional e explícito.
+> **Estado atual:** o instalador ainda não tem assinatura digital. A instalação em um Windows limpo e o fluxo completo de atualização em outro computador ainda precisam de validação.
 
-**Observações importantes:**
+Cada usuário informa sua própria chave Gemini e, opcionalmente, configura o Spotify. As credenciais são protegidas pelo **Windows DPAPI** na conta local; não são distribuídas com o projeto. Memória e preferências permanecem na área de dados do usuário, fora da pasta de instalação.
 
-- O instalador ainda **não tem assinatura digital** e pode gerar avisos do Windows.
-- A instalação completa em uma máquina Windows limpa ainda precisa ser validada.
-- Nenhuma chave pessoal é distribuída com o projeto. Credenciais são protegidas pelo **Windows DPAPI** para a conta local após a configuração; memória e preferências ficam na área de dados do usuário.
+**Atualizações:** instalações anteriores à versão `0.1.1` precisam executar uma vez o Setup mais recente para habilitar o atualizador. O processo mantém a instalação anterior durante a troca, portanto necessita de espaço temporário adicional.
 
-## Atualizações
+## Executar pelo código
 
-O ULTRON consulta novas versões enquanto está aberto e pode baixar uma atualização verificada. Ao finalizar o download, o usuário escolhe **Reiniciar agora** ou **Depois**.
-
-A instalação anterior é preservada durante a troca para possibilitar restauração em caso de falha. Por isso, é necessário espaço temporário para duas instalações.
-
-> Versões anteriores à **0.1.1** precisam receber o novo instalador manualmente uma vez para habilitar o atualizador. O fluxo completo de atualização entre versões em outro computador ainda precisa ser validado.
-
-## Executar pelo código-fonte
-
-Utilize **Python 3.11–3.13** em um ambiente virtual:
+Requer **Windows** e **Python 3.11–3.13**:
 
 ```powershell
 python -m venv .venv
@@ -70,44 +53,30 @@ python -m venv .venv
 .\.venv\Scripts\python.exe ultron_entry.py
 ```
 
-Para habilitar a automação web:
+Para preparar a automação web opcional:
 
 ```powershell
 .\.venv\Scripts\python.exe -m playwright install chromium
 ```
 
-Não adicione chaves de API ou dados pessoais ao repositório. Verifique os arquivos antes de qualquer commit, mesmo com as regras do `.gitignore`.
+Nunca publique suas chaves ou arquivos locais de configuração no GitHub.
 
 ## Desenvolvimento
-
-Execute os testes automatizados:
 
 ```powershell
 .\.venv\Scripts\python.exe -X utf8 -m unittest discover -s tests -p "test_*.py" -q
 ```
 
-Os testes utilizam mocks e dados fictícios; **não garantem** conectividade real de todos os serviços ou compatibilidade com todos os ambientes Windows.
+Os testes usam mocks e dados fictícios; não comprovam conectividade real com todos os serviços.
 
-Documentação para colaboradores e manutenção:
-
-- [Instruções para agentes e desenvolvedores](AGENTS.md)
-- [Instalador: build e armazenamento](installer/README.md)
-- [Validação do instalador](installer/VALIDACAO.md)
-- [Validação da integração WhatsApp](docs/whatsapp-validation.md)
-
-O instalador pode ser compilado localmente ou por um workflow Windows. O envio de uma tag cria um rascunho de release quando ainda não existe.
+Mais informações: [AGENTS.md](AGENTS.md) · [Instalador](installer/README.md) · [Validação do instalador](installer/VALIDACAO.md) · [WhatsApp](docs/whatsapp-validation.md)
 
 ## Licença e créditos
 
-ULTRON é derivado do **[MARK LVI de FatihMakes](https://github.com/FatihMakes/Mark-LVI)**. A licença original [**CC BY-NC 4.0**](LICENSE) é preservada, incluindo atribuição e restrição de uso comercial. A publicação do código neste repositório não altera essas condições.
-
-O modelo de face MediaPipe mantém sua atribuição original, indicada nos comentários do projeto e no upstream.
+Derivado do **[MARK LVI](https://github.com/FatihMakes/Mark-LVI)**, de **FatihMakes**. Mantida a licença original **[CC BY-NC 4.0](LICENSE)**, incluindo a atribuição e a restrição de uso comercial. A publicação do código não altera essas condições. O modelo facial MediaPipe mantém sua atribuição original, conforme os comentários do código e o projeto upstream.
 
 ---
 
-<div align="center"><sub>ULTRON · Built on MARK LVI</sub></div>
-
-
-## Guia de instalação e atualização
-
-Veja o [guia detalhado](docs/installation.md) para instalação, dados locais e atualizações.
+<div align="center">
+  <sub>ULTRON · PERSONAL AI SYSTEM</sub>
+</div>
