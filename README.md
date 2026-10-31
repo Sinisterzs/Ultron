@@ -79,7 +79,7 @@ Never commit API keys or local configuration files to GitHub.
 
 Tests use mocks and sample data; they do not establish real connectivity with every external service.
 
-Further reading: [AGENTS.md](AGENTS.md) · [Installer](installer/README.md) · [Installer Validation](installer/VALIDACAO.md) · [WhatsApp Validation](docs/whatsapp-validation.md)
+Further reading:  [Installer](installer/README.md) · [Installer Validation](installer/VALIDACAO.md) · [WhatsApp Validation](docs/whatsapp-validation.md)
 
 ## License & Credits
 
