@@ -429,6 +429,25 @@ conversa reexibem o painel sem limpar o histórico; mensagens SYS não o reabrem
 Câmera/vídeo continuam respeitando a ocultação do chat. O estado LISTENING por
 si só não conta como fala: ele também representa silêncio com o microfone ativo.
 
+### Release 0.1.5 — pesquisa regional e evidências de oferta
+
+Publicação autorizada pelo usuário. `core/search_sources.py` seleciona fontes
+por país/assunto para `search` e `price`; domínios são filtrados após DDG e não
+há fallback automático fora do perfil conhecido. Site/país explícitos prevalecem;
+`expand_sources` exige pedido explícito. Perfis atuais BR: hardware e imóveis.
+`core/ip_geolocation.py` consulta IP somente ao pesquisar/exibir Ajustes, com
+timeout/cache; `get_search_location` prioriza override confirmado persistido
+via `core/config_store`. `core/location_settings.py` usa worker Qt; a moeda
+deriva do país por Qt/CLDR. Não registrar IP/coordenadas nem gravar cidade sem
+confirmação. Os novos módulos entram pela allowlist `core/*.py` existente.
+`core/offer_verifier.py` limita HTTP, gzip e redirects, fixa IP público validado,
+preserva Host/TLS e não usa cookies/proxies. Amazon/KaBuM complementam JSON-LD
+com campos da oferta principal. Evidências continuam conteúdo não confiável.
+Preço, vendedor, moeda e condições precisam pertencer à mesma oferta;
+`declared_total`, `calculated_total` (Decimal) e `embedded_regular_price` têm
+significados distintos. Nunca garantir checkout/estoque por metadados da página.
+As suítes não devem ser repetidas nesta publicação por instrução do usuário.
+
 ### Release 0.1.4 e ícones distintos
 
 O usuário autorizou expressamente o build e a publicação desta atualização.

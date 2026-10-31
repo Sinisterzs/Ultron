@@ -1151,7 +1151,11 @@ def browser_control(
     # opens here. The only exception: if an automation flow is already running,
     # navigation continues in that window (so multi-step tasks aren't split).
     if action in ("go_to", "search", "new_tab"):
-        if _registry.has(browser):
+        # An omitted browser means an explicit URL/search should open through
+        # the OS default browser. Reuse an automation session only when the
+        # caller names that browser, otherwise a previous Chrome session would
+        # silently hijack ordinary links.
+        if browser and _registry.has(browser):
             sess = _registry.get(browser)
             try:
                 if action == "search":

@@ -1,5 +1,6 @@
 #web_search.py
 import json
+import re
 import sys
 import threading
 import time
@@ -95,14 +96,31 @@ def _gemini_search(query: str) -> str:
         _note_gemini_error(e)
         raise
 
+    candidate = response.candidates[0]
     text = ""
-    for part in response.candidates[0].content.parts:
+    for part in candidate.content.parts:
         if hasattr(part, "text") and part.text:
             text += part.text
 
     text = text.strip()
     if not text:
         raise ValueError("Gemini returned an empty response.")
+
+    # The REST response keeps the source URLs in grounding metadata rather
+    # than necessarily repeating them in the generated text. Preserve them so
+    # a later explicit request such as "open that listing" can use only this
+    # authoritative block instead of guessing from the spoken summary.
+    metadata = getattr(candidate, "grounding_metadata", None)
+    chunks = getattr(metadata, "grounding_chunks", None) or []
+    sources = []
+    for chunk in chunks:
+        web = getattr(chunk, "web", None)
+        url = getattr(web, "uri", None) if web else None
+        if url and url not in sources:
+            title = getattr(web, "title", None) if web else None
+            sources.append(f"{title}: {url}" if title else url)
+    if sources:
+        text += "\n\nSources:\n" + "\n".join(f"- {source}" for source in sources)
     return text
 
 
@@ -239,13 +257,18 @@ def _gemini_headlines(n: int = 5) -> tuple[list[str], str]:
 
 # ── Modes ──────────────────────────────────────────────────────────────────────
 
-def _search(query: str) -> str:
+def _search(query: str, country='', site='', expand_sources=False) -> str:
     """Default search — Gemini grounded, DDG fallback."""
+    preferred = _source_search(query, country, site, expand_sources)
+    if preferred is not None:
+        return preferred
+    regional_hint = _regional_search_hint(query, "search")
+    search_query = f"{query}.{regional_hint}" if regional_hint else query
     try:
-        return _gemini_search(query)
+        return _gemini_search(search_query)
     except Exception as e:
         _log_gemini_failure("Gemini search", e)
-        results = _ddg_search(query)
+        results = _ddg_search(search_query)
         return _format_ddg(query, results)
 
 
@@ -300,15 +323,122 @@ def _research(query: str) -> str:
         return _format_ddg(query, results)
 
 
-def _price(query: str) -> str:
+def _price(query: str, country='', site='', expand_sources=False) -> str:
     """Product price lookup — searches for current market prices."""
-    price_query = f"current price of {query} — how much does it cost today"
+    preferred = _source_search(query, country, site, expand_sources)
+    if preferred is not None:
+        return _append_offer_verification(query, preferred)
+    regional_hint = _regional_search_hint(query, "price")
+    price_query = (
+        f"current price of {query} — how much does it cost today. "
+        "For each reported offer, identify the seller and provide its exact "
+        "product or offer page URL when one is present. Do not treat a search, "
+        "category, or results page as the specific product page, and do not "
+        "invent a URL when no specific offer page is available."
+        f"{regional_hint}"
+    )
     try:
-        return _gemini_search(price_query)
+        return _append_offer_verification(query, _gemini_search(price_query))
     except Exception as e:
         _log_gemini_failure("Gemini price", e)
-        results = _ddg_search(f"{query} price buy", max_results=6)
-        return _format_ddg(query, results)
+        regional_query = f"{query} price buy{regional_hint}"
+        results = _ddg_search(regional_query, max_results=6)
+        return _append_offer_verification(query, _format_ddg(query, results))
+
+
+def _source_search(query, country='', site='', expand_sources=False):
+    from core.search_sources import source_plan, is_preferred_url
+    plan = source_plan(query, country, site)
+    if expand_sources is True and not (plan and plan['explicit_site']):
+        return None
+    if not plan:
+        return None
+    domains = plan['domains']
+    region = plan['region']
+    if not domains:
+        rows = _run_bounded(lambda: _ddg_search(f'{query} {region}', max_results=6), 6, 'regional search') or []
+        return ('No known-source profile is configured for this topic/country. Regional results are not endorsed as popular or reputable.\n'
+                + _format_ddg(query, rows))
+    scoped = f"{query} {region} (" + ' OR '.join('site:' + d for d in domains) + ')'
+    rows = _run_bounded(lambda: _ddg_search(scoped, max_results=8), 6, 'preferred sources') or []
+    rows = [row for row in rows if is_preferred_url(row.get('url', ''), domains)]
+    if rows:
+        return ('Source preference: ' + ', '.join(domains) +
+                '. Preference is not verification of price, payment, quality, or availability.\n' +
+                _format_ddg(query, rows))
+    if plan['explicit_site']:
+        return f"No results found on the explicitly requested site: {domains[0]}. No other site substituted."
+    return ('No adequate results found in the configured known sources: ' + ', '.join(domains)
+            + '. No other sources substituted. Report this limitation; broaden only if the user requests it.')
+
+
+def _append_offer_verification(query: str, result: str) -> str:
+    """Verify only URLs explicitly emitted in the result's source sections."""
+    urls = []
+    in_sources = False
+    for line in str(result).splitlines():
+        if line.strip() == 'Sources:':
+            in_sources = True
+            continue
+        if line.strip().startswith('Source:') or (in_sources and line.startswith('- ')):
+            # Gemini metadata blocks end in the exact URI; DDG uses Source:.
+            candidates = re.findall(r"https?://[^\s<>]+", line)
+            if candidates:
+                urls.append(candidates[-1])
+    result = 'Search text/snippet prices are unverified. Only the following page evidence may confirm an offer; payment requires explicit payment evidence.\n' + result
+    if not urls:
+        return result + "\n\nOffer verification: unverified — no specific source URL was provided."
+    try:
+        from core.offer_verifier import verify_offer_urls
+        evidence = verify_offer_urls(query, urls)
+    except Exception:
+        evidence = []
+    if not evidence:
+        return result + "\n\nOffer verification: unverified — verification was unavailable."
+    lines = ["Offer verification (page evidence, not a guarantee of stock):"]
+    for item in evidence:
+        status = item.get("status", "unverified")
+        line = f"- status={status} url={item.get('url', '')}"
+        if status == "verified":
+            line += (f" product={item.get('product', '')} seller={item.get('seller', '')}"
+                     f" price={item.get('price', '')} currency={item.get('currency', '')}"
+                     f" payment_condition={item.get('payment_condition', 'not confirmed')}"
+                     f" payment_evidence={json.dumps({k: item[k] for k in ('cash_price', 'cash_methods', 'installments') if k in item}, ensure_ascii=False)}")
+        else:
+            line += f" reason={item.get('reason', '')}"
+        lines.append(line)
+    return result + "\n\n" + "\n".join(lines)
+
+
+def _regional_search_hint(query: str, mode: str) -> str:
+    """Add a coarse local preference only where it helps regional search."""
+    local_terms = (
+        "near me", "nearby", "local", "loja", "lojas", "comprar",
+        "perto", "região", "cidade", "onde", "restaurante", "hotel",
+    )
+    if mode != "price" and not any(term in query.lower() for term in local_terms):
+        return ""
+    try:
+        from core.ip_geolocation import get_search_location
+        location = get_search_location()
+    except Exception:
+        return ""
+    if not location:
+        return ""
+    place = ", ".join(
+        value for key in ("city", "region", "country_name")
+        if (value := location.get(key))
+    )
+    currency = location.get("currency", "")
+    if not place:
+        return ""
+    return (
+        f" The user's {'confirmed preferred' if location.get('source') == 'manual' else 'approximate IP-based'} region is {place}"
+        f"{f' and currency is {currency}' if currency else ''}. "
+        "Prefer reputable sellers serving this region when available. "
+        f"{'This IP hint may be wrong due to VPN or network routing; ' if location.get('source') != 'manual' else ''}"
+        "honor any explicit region in the user's request instead."
+    )
 
 
 def _compare(items: list[str], aspect: str) -> str:
@@ -375,9 +505,9 @@ def web_search(
         elif mode == "research":
             found = _research(query)
         elif mode == "price":
-            found = _price(query)
+            found = _price(query, params.get('country', ''), params.get('site', ''), params.get('expand_sources', False))
         else:
-            found = _search(query)
+            found = _search(query, params.get('country', ''), params.get('site', ''), params.get('expand_sources', False))
 
     except Exception as e:
         print(f"[WebSearch] ❌ All backends failed: {e}")
@@ -401,7 +531,7 @@ def web_search(
 # ── Tool declaration (auto-discovered by core/action_loader.py) ──────────────
 TOOL = {
     "name": "web_search",
-    "description": "Searches the web. Use for ANY question about current facts, events, prices, or topics — always prefer this over guessing. Modes: 'search' (default), 'news' (latest headlines on a topic), 'research' (deep comprehensive answer), 'price' (product cost lookup), 'compare' (side-by-side comparison of items).",
+    "description": "Silently searches the web and returns source data to the assistant for a spoken summary. Use for ANY question about current facts, events, apartments, products, prices, news, places, or other topics — always prefer this over guessing. Do not open or display a browser. Modes: 'search' (default), 'news' (latest headlines on a topic), 'research' (deep comprehensive answer), 'price' (product cost lookup), 'compare' (side-by-side comparison of items). Use browser_control only when the user explicitly asks to open or control a browser.",
     "parameters": {
         "type": "OBJECT",
         "properties": {
@@ -412,6 +542,18 @@ TOOL = {
             "mode": {
                 "type": "STRING",
                 "description": "search | news | research | price | compare"
+            },
+            "country": {
+                "type": "STRING",
+                "description": "ISO country code only when explicitly requested by user (e.g. BR or PT); global for an explicit worldwide search. Omit to use confirmed location or IP."
+            },
+            "expand_sources": {
+                "type": "BOOLEAN",
+                "description": "True ONLY when user explicitly asks to broaden beyond configured known sites; otherwise false. Never expand just because known sites return no results."
+            },
+            "site": {
+                "type": "STRING",
+                "description": "Domain only when explicitly requested by user; omit to use known-source topic/country profile. Preserve any requested country/city in query."
             },
             "items": {
                 "type": "ARRAY",

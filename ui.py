@@ -6998,6 +6998,12 @@ class MainWindow(QMainWindow):
             label.setWordWrap(True)
             page.layout().insertWidget(1, label)
 
+        from core.location_settings import LocationSettings
+        settings_page = self._pages.widget(self._side_rail.PAGES.index('Ajustes'))
+        self._location_settings = LocationSettings(settings_page)
+        settings_page.layout().insertWidget(settings_page.layout().count() - 1,
+                                            self._location_settings)
+
         for name, attribute, headers in (
             ("Plugins", "_plugins_table", ("Tipo", "Nome", "Descrição", "Estado")),
             ("Memória", "_memory_table", ("Categoria", "Chave", "Valor", "Atualizado")),
