@@ -7,8 +7,8 @@ from PyQt6.QtCore import QEvent, QObject
 from PyQt6.QtWidgets import QLabel, QLineEdit, QPushButton, QTextEdit, QWidget
 
 BG = "#000000"
-SURFACE = "#050505"
-SURFACE_2 = "#080808"
+SURFACE = "#000000"
+SURFACE_2 = "#000000"
 BORDER = "#2c0d14"
 BORDER_HI = "#60141f"
 TEXT = "#ececf2"
@@ -41,11 +41,11 @@ def build_qss(accent):
     }}
     QWidget[markTheme="background"] {{ background: {BG}; }}
     QWidget[markTheme="card"] {{
-        background: {SURFACE}; border: 1px solid {BORDER}; border-radius: 12px;
+        background: {SURFACE}; border: 1px solid {BORDER}; border-radius: 3px;
     }}
     QPushButton[markTheme="button"] {{
         background: {SURFACE_2}; color: {TEXT};
-        border: 1px solid {BORDER}; border-radius: 10px;
+        border: 1px solid {BORDER}; border-radius: 3px;
     }}
     QPushButton[markTheme="button"]:hover {{
         background: {soft}; border-color: {a}; color: {TEXT};
@@ -66,7 +66,7 @@ def build_qss(accent):
     }}
     QLineEdit[markTheme="field"], QTextEdit[markTheme="log"] {{
         background: {BG}; color: {TEXT}; border: 1px solid {BORDER};
-        border-radius: 10px; selection-background-color: {dark};
+        border-radius: 3px; selection-background-color: {dark};
     }}
     QLineEdit[markTheme="field"]:focus, QTextEdit[markTheme="log"]:focus {{
         border-color: {a};
@@ -108,6 +108,10 @@ class WidgetTheme(QObject):
         hud = getattr(self.window, "hud", None)
         if hud is not None and (widget is hud or hud.isAncestorOf(widget)):
             return
+        for attr in ("_core_status", "_news", "_bottom_nav", "_left_primary", "_right_primary"):
+            chrome = getattr(self.window, attr, None)
+            if chrome is not None and (widget is chrome or chrome.isAncestorOf(widget)):
+                return
         bar = getattr(self.window, "_title_bar", None)
         in_bar = bar is not None and (widget is bar or bar.isAncestorOf(widget))
         if in_bar and widget not in (getattr(self.window, "_title_lbl", None),

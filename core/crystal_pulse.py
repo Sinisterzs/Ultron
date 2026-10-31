@@ -1,261 +1,185 @@
 """
-HoloCrystal — Modelo visual Crystal Pulse para o HUD do Mark LVI.
+HoloCrystal — Modelo visual Shield Ruby 2.5D multi-estado para o HUD VOID OS.
 
-Conceito aprovado:
-    Cristal holográfico vermelho tridimensional com facetas luminosas, rotação suave
-    e anel de pulso energético reativo à voz.
+Assinaturas visuais distintas por etapa:
+    - IDLE:
+        Rotação orbital contínua em 3 camadas contra-rotativas (bisel externo
+        segmentado + satélites, arcos médios assimétricos e giroscópio interno),
+        respiração orgânica e paralaxe 2.5D serena.
+    - LISTENING (Escuta Ativa):
+        Ondas acústicas convergentes (de fora para dentro em direção ao núcleo),
+        colchetes equatoriais de captação enquadrando os 2 beacons cardeais e
+        resposta imediata ao nível do microfone.
+    - THINKING / PROCESSING (Processamento Neural):
+        Modo scanner de alta velocidade: contra-rotação acelerada nos 3 anéis,
+        beacons rubi destravados orbitando 360° com rastros luminosos (comet trails),
+        varredura vertical de luz interna confinada nas facetas e pulso nas arestas "X".
+    - SPEAKING (Voz Ativa do ULTRON):
+        Envelope perceptual de alto ganho (amp + visemas v_open/v_level + portadora
+        silábica), ondas sônicas expansivas (do núcleo para fora), ressonador
+        harmônico radial no anel interno, articulação elástica das facetas/losango
+        interno e núcleo rubi incandescente (100% sem vazar névoa no #000000 externo).
 
 Tecnologia:
-    PyQt6 + QPainter puro (sem shaders, sem OpenGL, sem QML, ultra-leve).
-    Compatível com a API do HoloEye:
-        crystal.step(dt, amp, speaking=..., muted=..., state=...)
-        crystal.paint(painter, cx, cy, r, primary, accent, bg)
-        crystal.glance(dx, dy, hold=...)
+    PyQt6 + QPainter vetorial puro, zero QTimer extra, zero blur NumPy por frame.
 """
 from __future__ import annotations
 
 import math
-from typing import Sequence
 
-import numpy as np
-from PyQt6.QtCore import QPointF, QRectF, Qt
+from PyQt6.QtCore import QLineF, QPointF, QRectF, Qt
 from PyQt6.QtGui import (
     QBrush,
     QColor,
+    QLinearGradient,
     QPainter,
+    QPainterPath,
     QPen,
     QPolygonF,
     QRadialGradient,
-    QLinearGradient,
-    QImage,
 )
 
-SPAN: float = 1.80
+SPAN: float = 1.88
+
+_TRANSPARENT_BLACK = QColor(0, 0, 0, 0)
 
 
 def _rate(dt: float, tau: float) -> float:
-    """Suavizacao exponencial independente da taxa de quadros."""
+    """Suavização exponencial independente da taxa de quadros."""
     if dt <= 0.0:
         return 0.0
     return 1.0 - math.exp(-dt / max(tau, 1e-6))
 
 
-def _c(col: QColor, a: float) -> QColor:
-    """Copia a cor com alpha ajustado (0..255)."""
-    q = QColor(col)
-    q.setAlpha(int(max(0.0, min(255.0, a))))
-    return q
+def _clamp(val: float, lo: float, hi: float) -> float:
+    return lo if val < lo else (hi if val > hi else val)
 
 
-# ── GEOMETRIA DO CRISTAL PRINCIPAL (10 Vertices, 16 Facetas Triangulares) ────
-# ── GEOMETRIA DO CRISTAL PRINCIPAL (10 Vertices, 16 Facetas Triangulares) ────
-# O cristal e vertical: eixo Y e a altura (topo negativo=cima, base positiva=baixo).
-# Eixos X e Z formam o plano horizontal equatorial.
-_H_TIP = 1.82
-_R_RING = 0.72
-_Y_RING = 0.36
+def _tone(
+    base: QColor,
+    lum: float,
+    *,
+    crimson_blue_bias: float = 0.22,
+    white_lift: float = 0.0,
+    alpha: float = 255.0,
+    muted: bool = False,
+) -> QColor:
+    """Deriva um tom de faceta/anel a partir da cor primária preservando a riqueza rubi."""
+    if muted:
+        g = int(
+            _clamp(
+                (base.red() * 0.30 + base.green() * 0.45 + base.blue() * 0.25) * lum
+                + 255.0 * white_lift * 0.35,
+                0.0,
+                255.0,
+            )
+        )
+        return QColor(
+            g,
+            int(_clamp(g * 1.04, 0, 255)),
+            int(_clamp(g * 1.10, 0, 255)),
+            int(_clamp(alpha, 0.0, 255.0)),
+        )
 
-_CRYSTAL_VERTS = np.array([
-    [0.0, -_H_TIP, 0.0],  # 0: Topo pontiagudo
-    [_R_RING, -_Y_RING, 0.0],  # 1 (0 deg)
-    [0.0, -_Y_RING, _R_RING],  # 2 (90 deg)
-    [-_R_RING, -_Y_RING, 0.0],  # 3 (180 deg)
-    [0.0, -_Y_RING, -_R_RING],  # 4 (270 deg)
-    [_R_RING * 0.7071, _Y_RING, _R_RING * 0.7071],  # 5 (45 deg)
-    [-_R_RING * 0.7071, _Y_RING, _R_RING * 0.7071],  # 6 (135 deg)
-    [-_R_RING * 0.7071, _Y_RING, -_R_RING * 0.7071],  # 7 (225 deg)
-    [_R_RING * 0.7071, _Y_RING, -_R_RING * 0.7071],  # 8 (315 deg)
-    [0.0, _H_TIP, 0.0],  # 9: Base pontiaguda
-], dtype=np.float32)
+    br, bg, bb = base.red(), base.green(), base.blue()
+    is_ruby = br >= 165 and bg <= 75 and bb <= 110
+    if is_ruby:
+        r_v = 255.0 * lum + (255.0 - 255.0 * lum) * white_lift
+        g_v = (16.0 * lum) + 235.0 * white_lift * 0.34
+        b_v = (255.0 * lum * crimson_blue_bias) + 245.0 * white_lift * 0.44
+    else:
+        r_v = br * lum + (255.0 - br * lum) * white_lift
+        g_v = bg * lum + (255.0 - bg * lum) * white_lift
+        b_v = bb * lum + (255.0 - bb * lum) * white_lift
 
-_CRYSTAL_FACES = [
-    # Top cap (4 triangulos)
-    (0, 1, 2), (0, 2, 3), (0, 3, 4), (0, 4, 1),
-    # Cintura antiprismatica (8 triangulos)
-    (1, 5, 2), (2, 5, 6), (2, 6, 3), (3, 6, 7),
-    (3, 7, 4), (4, 7, 8), (4, 8, 1), (1, 8, 5),
-    # Bottom cap (4 triangulos)
-    (9, 6, 5), (9, 7, 6), (9, 8, 7), (9, 5, 8),
-]
-
-# ── NUCLEO ENERGETICO INTERNO (Octaedro com 6 Vertices, 8 Facetas) ───────────
-_CORE_R = 0.32
-_CORE_H = 0.65
-_CORE_VERTS = np.array([
-    [0.0, -_CORE_H, 0.0],   # 0: Topo core
-    [_CORE_R, 0.0, 0.0],    # 1
-    [0.0, 0.0, _CORE_R],    # 2
-    [-_CORE_R, 0.0, 0.0],   # 3
-    [0.0, 0.0, -_CORE_R],   # 4
-    [0.0, _CORE_H, 0.0],    # 5: Base core
-], dtype=np.float32)
-
-_CORE_FACES = [
-    (0, 1, 2), (0, 2, 3), (0, 3, 4), (0, 4, 1),
-    (5, 2, 1), (5, 3, 2), (5, 4, 3), (5, 1, 4),
-]
-
-
-def _compute_face_normals(verts, faces):
-    """Pré-computa normais unitárias das faces no espaço do objeto (feito uma vez)."""
-    normals = []
-    for i0, i1, i2 in faces:
-        e1 = verts[i1] - verts[i0]
-        e2 = verts[i2] - verts[i0]
-        n = np.cross(e1, e2)
-        n_len = np.linalg.norm(n)
-        if n_len > 1e-6:
-            n = n / n_len
-        else:
-            n = np.array([0.0, 0.0, 1.0], dtype=np.float32)
-        normals.append(n)
-    return np.array(normals, dtype=np.float32)
-
-
-# Normais pré-computadas (espaço do objeto) — transformadas pela matriz de rotação
-# no paint(), evitando produto vetorial + normalização por frame, por face.
-_CRYSTAL_FACE_NORMALS = _compute_face_normals(_CRYSTAL_VERTS, _CRYSTAL_FACES)
-_CORE_FACE_NORMALS = _compute_face_normals(_CORE_VERTS, _CORE_FACES)
-
-# Preto transparente reutilizado (evita criar QColor(0,0,0,0) a cada frame)
-_TRANSPARENT_BLACK = QColor(0, 0, 0, 0)
-
-
-
-def _gaussian_blur_image(image: QImage, sigma: float = 5.0) -> QImage:
-    """Fast Gaussian-like bloom via 3 separable box filters (integral sums).
-
-    Three passes of a box filter closely approximate Gaussian softness, but
-    avoid the original ~62 full-frame weighted NumPy operations per update.
-    The small premultiplied RGBA emission image is the only thing blurred.
-    """
-    # The emission layer already uses this format: avoid an unnecessary copy.
-    if image.format() != QImage.Format.Format_ARGB32_Premultiplied:
-        image = image.convertToFormat(QImage.Format.Format_ARGB32_Premultiplied)
-    h, w = image.height(), image.width()
-    raw = image.constBits().asarray(image.sizeInBytes())
-    pixels = np.frombuffer(raw, dtype=np.uint8).reshape(h, image.bytesPerLine())[:, :w * 4]
-    data = pixels.reshape(h, w, 4).astype(np.float32)
-
-    # Three odd box widths approximating a normal distribution with sigma.
-    n = 3
-    ideal = math.sqrt(12.0 * sigma * sigma / n + 1.0)
-    lower = max(3, int(math.floor(ideal)))
-    if lower % 2 == 0:
-        lower -= 1
-    upper = lower + 2
-    count_lower = round((12.0 * sigma * sigma - n * lower * lower
-                         - 4 * n * lower - 3 * n) / (-4.0 * lower - 4.0))
-    count_lower = max(0, min(n, count_lower))
-    widths = [lower] * count_lower + [upper] * (n - count_lower)
-
-    def box_axis(a: np.ndarray, radius: int, axis: int) -> np.ndarray:
-        if radius <= 0:
-            return a
-        pads = [(0, 0)] * a.ndim
-        pads[axis] = (radius, radius)
-        # Zero outside the texture, so the light does not smear over boundaries.
-        padded = np.pad(a, pads, mode='constant')
-        # Prefix with a zero along the filtered dimension to create identical
-        # window lengths everywhere, without a Python loop over filter taps.
-        origin_shape = list(padded.shape)
-        origin_shape[axis] = 1
-        sums = np.concatenate((np.zeros(origin_shape, dtype=np.float32),
-                               np.cumsum(padded, axis=axis, dtype=np.float32)),
-                              axis=axis)
-        length = 2 * radius + 1
-        if axis == 0:
-            return (sums[length:, :, :] - sums[:-length, :, :]) / length
-        return (sums[:, length:, :] - sums[:, :-length, :]) / length
-
-    for width in widths:
-        radius = width // 2
-        data = box_axis(data, radius, 1)
-        data = box_axis(data, radius, 0)
-
-    output = np.ascontiguousarray(np.clip(data, 0, 255).astype(np.uint8))
-    return QImage(output.data, w, h, w * 4,
-                  QImage.Format.Format_ARGB32_Premultiplied).copy()
+    return QColor(
+        int(_clamp(r_v, 0.0, 255.0)),
+        int(_clamp(g_v, 0.0, 255.0)),
+        int(_clamp(b_v, 0.0, 255.0)),
+        int(_clamp(alpha, 0.0, 255.0)),
+    )
 
 
 class HoloCrystal:
-    """Visualizador Crystal Pulse: cristal 3D holografico com anel de pulso reativo."""
+    """Visualizador Shield Ruby 2.5D com coreografias distintas para LISTENING, THINKING e SPEAKING."""
 
     SPAN: float = SPAN
+
+    # Anel externo segmentado (start_deg, span_deg) — garante movimento visível no bisel externo
+    _OUTER_BEZEL_ARCS: tuple[tuple[float, float], ...] = (
+        (18.0, 54.0),
+        (108.0, 54.0),
+        (198.0, 54.0),
+        (288.0, 54.0),
+    )
+
+    # Anel médio de telemetria (start_deg, span_deg, camada_rotacao)
+    _TELEMETRY_ARCS: tuple[tuple[float, float, int], ...] = (
+        (100.0, 46.0, 1),
+        (158.0, 18.0, -1),
+        (196.0, 48.0, 1),
+        (264.0, 10.0, -1),
+        (304.0, 50.0, 1),
+        (4.0, 30.0, -1),
+        (48.0, 19.0, 1),
+    )
+
+    # Anel interno giroscópico (start_deg, span_deg)
+    _INNER_GYRO_ARCS: tuple[tuple[float, float], ...] = (
+        (15.0, 74.0),
+        (135.0, 74.0),
+        (255.0, 74.0),
+    )
 
     def __init__(self) -> None:
         self._t: float = 0.0
         self._amp: float = 0.0
-        self._amp_disp: float = 0.0
         self._amp_fast: float = 0.0
+        self._amp_disp: float = 0.0
+        self._voice: float = 0.0      # envelope perceptual potente durante SPEAKING
+        self._mic_pulse: float = 0.0  # envelope reativo durante LISTENING
+        self._v_open: float = 0.0     # abertura fonêmica (visema) quando disponível
 
-        # Estados logicos
         self._speaking: bool = False
         self._muted: bool = False
         self._state: str = ""
 
-        # Cinematica de rotacao e olhar
-        self._yaw: float = 0.0
-        self._pitch: float = 0.28  # inclinacao fixa suave para visao 3D
-        self._roll: float = 0.0
-        self._core_yaw: float = 0.0
+        # Pesos interpolados de estado (0..1) para transições suaves e assinaturas únicas
+        self._w_listen: float = 0.0
+        self._w_think: float = 0.0
+        self._w_speak: float = 0.0
 
-        # Dinamica de velocidade e energia
-        self._rot_speed: float = 0.38
         self._energy: float = 0.40
         self._breathe: float = 0.0
 
-        # Glance / Tilt interativo
+        # Fases orbitais independentes (nunca parecem círculos estáticos)
+        self._outer_phase: float = 0.0
+        self._arc_phase_a: float = 0.0
+        self._arc_phase_b: float = 0.0
+        self._inner_phase: float = 0.0
+        self._beacon_orbit: float = 0.0
+        self._sway_phase: float = 0.0
+        self._scan_phase: float = 0.0
+
+        # Ondas direcionais: convergentes (LISTENING) e expansivas (SPEAKING)
+        self._inward_waves: list[float] = [0.0, 0.50]
+        self._outward_waves: list[float] = [0.0, 0.33, 0.66]
+
         self._glance_x: float = 0.0
         self._glance_y: float = 0.0
         self._glance_tgt: tuple[float, float, float] = (0.0, 0.0, 0.0)
 
-        # Anel de pulso e ondas concentricas
-        self._ring_angle: float = 0.0
-        self._sub_ring_angle: float = 0.0
-        self._pulse_waves = [
-            {"phase": 0.0, "speed": 0.85},
-            {"phase": 0.33, "speed": 0.75},
-            {"phase": 0.66, "speed": 0.65},
-        ]
-
-        # Vetor de luz direcional 3D normalizado
-        lv = np.array([0.35, -0.45, 0.82], dtype=np.float32)
-        self._light_dir = lv / np.linalg.norm(lv)
-
-        # D19Q: cached diffuse light; sharp crystal and orbital lines still
-        # render at the HUD's normal frame rate.
-        self._bloom_cache: QImage | None = None
-        # D20J: retain the reusable emission surface instead of allocating
-        # a fresh QImage on every bloom refresh.
-        self._bloom_emission: QImage | None = None
-        self._bloom_emission_side: int = 0
-        # Warm up the same NumPy blur path before the HUD starts animating.
-        # This moves first-use allocations to construction rather than paint.
-        self.prewarm_bloom()
-        self._bloom_last_t: float = -1.0
-        self._bloom_last_size: int = 0
-        self._bloom_last_r: float = 0.0
-        self._bloom_last_palette: tuple[int, int] | None = None
-        self._bloom_last_voice: float = -1.0
-        self._bloom_last_energy: float = -1.0
-
     def prewarm_bloom(self) -> None:
-        """Optional warm-up before showing the window (never call in paintEvent).
-
-        Initializes NumPy/Qt processing with a representative bloom-size image.
-        This may move first-use overhead into startup, not eliminate OS stalls.
-        """
-        if getattr(self, "_bloom_preheated", False):
-            return
-        self._bloom_preheated = True
-        sample = QImage(160, 160, QImage.Format.Format_ARGB32_Premultiplied)
-        sample.fill(Qt.GlobalColor.transparent)
-        _gaussian_blur_image(sample, sigma=4.1)
+        """Mantido por compatibilidade; o pipeline vetorial 2.5D dispensa blur offscreen."""
+        return
 
     def glance(self, dx: float, dy: float, hold: float = 1.1) -> None:
-        """Inclina suavemente a orientacao do cristal para olhar em uma direcao."""
-        self._glance_tgt = (float(dx), float(dy), self._t + float(hold))
+        """Inclina suavemente a paralaxe 2.5D do cristal na direção indicada."""
+        self._glance_tgt = (
+            _clamp(float(dx), -1.5, 1.5),
+            _clamp(float(dy), -1.5, 1.5),
+            self._t + float(hold),
+        )
 
     def step(
         self,
@@ -266,69 +190,148 @@ class HoloCrystal:
         state: str = "",
         **kw,
     ) -> None:
-        """Avanca o estado fisico e temporal da animacao."""
-        dt = max(0.0, min(0.1, dt))
+        """Avança a cinemática multi-estado, envelopes de voz e fases orbitais."""
+        dt = _clamp(float(dt), 0.0, 0.1)
         self._t += dt
         self._speaking = bool(speaking)
         self._muted = bool(muted)
         self._state = str(state or "").upper()
 
-        # Suavizacao da amplitude de voz com constante temporal independente de FPS
-        r_up = _rate(dt, 0.045)
-        r_down = _rate(dt, 0.22)
-        if amp > self._amp_fast:
-            self._amp_fast += (amp - self._amp_fast) * r_up
+        v_level = kw.get("v_level")
+        v_open = kw.get("v_open")
+
+        raw_amp = _clamp(float(amp), 0.0, 1.0)
+        if v_level is not None:
+            raw_amp = max(raw_amp, _clamp(float(v_level), 0.0, 1.0))
+
+        # Ataque ultra-rápido (22 ms) para sílabas nítidas; queda elástica (115 ms)
+        if raw_amp > self._amp_fast:
+            self._amp_fast += (raw_amp - self._amp_fast) * _rate(dt, 0.022)
         else:
-            self._amp_fast += (amp - self._amp_fast) * r_down
+            self._amp_fast += (raw_amp - self._amp_fast) * _rate(dt, 0.115)
 
-        r_disp = _rate(dt, 0.12)
-        self._amp_disp += (self._amp_fast - self._amp_disp) * r_disp
-        self._amp = self._amp_disp
+        self._amp_disp += (self._amp_fast - self._amp_disp) * _rate(dt, 0.055)
+        self._amp = _clamp(self._amp_disp, 0.0, 1.0)
 
-        # Fase de respiracao continua
-        self._breathe += dt * 1.8
+        # Visema de abertura silábica (ou derivado da energia vocal)
+        tgt_open = _clamp(float(v_open), 0.0, 1.0) if v_open is not None else min(1.0, self._amp * 1.9)
+        self._v_open += (tgt_open - self._v_open) * _rate(dt, 0.035)
 
-        # Alvos conforme os estados formais
+        # Pesos exclusivos de cada etapa ativa
+        is_think = (not self._muted) and (not self._speaking) and self._state in ("THINKING", "PROCESSING")
+        is_speak = (not self._muted) and self._speaking
+        is_listen = (not self._muted) and (not is_speak) and (not is_think) and self._state == "LISTENING"
+
+        r_state = _rate(dt, 0.13)
+        self._w_listen += ((1.0 if is_listen else 0.0) - self._w_listen) * r_state
+        self._w_think += ((1.0 if is_think else 0.0) - self._w_think) * r_state
+        self._w_speak += ((1.0 if is_speak else 0.0) - self._w_speak) * r_state
+
+        # Curva perceptual de voz para SPEAKING: amplifica sinais típicos (0.10..0.35)
+        # e mantém modulação silábica orgânica mesmo em trechos suaves de TTS.
+        perceptual = min(1.0, (self._amp * 2.45) ** 0.68)
+        if is_speak:
+            syllabic_floor = (
+                0.24
+                + 0.22 * abs(math.sin(self._t * 8.4))
+                * (0.45 + 0.55 * (math.sin(self._t * 3.3 + 0.7) ** 2))
+            )
+            tgt_voice = max(perceptual, self._v_open * 0.85, syllabic_floor)
+        else:
+            tgt_voice = 0.0
+        self._voice += (tgt_voice - self._voice) * _rate(dt, 0.038 if is_speak else 0.14)
+
+        # Envelope reativo de microfone para LISTENING
+        tgt_mic = min(1.0, (self._amp * 2.2) ** 0.72) if is_listen else 0.0
+        self._mic_pulse += (tgt_mic - self._mic_pulse) * _rate(dt, 0.045 if is_listen else 0.16)
+
+        self._breathe += dt * (1.55 + 0.85 * self._w_listen + 1.4 * self._w_speak)
+
+        # Velocidades orbitais claramente perceptíveis e únicas para cada estado
         if self._muted:
-            tgt_speed = 0.15
-            tgt_energy = 0.15
-        elif self._state in ("THINKING", "PROCESSING"):
-            tgt_speed = 1.25
-            tgt_energy = 0.85 + 0.15 * math.sin(self._t * 6.0)
-        elif self._speaking:
-            tgt_speed = 0.65 + 0.55 * self._amp
-            tgt_energy = 0.70 + 0.65 * self._amp
-        elif self._state == "LISTENING":
-            tgt_speed = 0.45
-            tgt_energy = 0.55 + 0.25 * math.sin(self._breathe * 1.5)
-        else:  # IDLE
-            tgt_speed = 0.32
-            tgt_energy = 0.38 + 0.18 * math.sin(self._breathe)
+            tgt_energy = 0.12
+            v_outer = 6.0
+            v_mid_a = 9.0
+            v_mid_b = -7.0
+            v_inner = -10.0
+            sway_rate = 0.30
+        else:
+            # Base IDLE (movimento vivo e contínuo) + deltas por etapa
+            v_outer = (
+                20.0
+                + 14.0 * self._w_listen
+                + 88.0 * self._w_think
+                + (32.0 + 52.0 * self._voice) * self._w_speak
+            )
+            v_mid_a = (
+                26.0
+                + 16.0 * self._w_listen
+                + 122.0 * self._w_think
+                + (38.0 + 70.0 * self._voice) * self._w_speak
+            )
+            v_mid_b = -(
+                21.0
+                + 14.0 * self._w_listen
+                + 104.0 * self._w_think
+                + (30.0 + 58.0 * self._voice) * self._w_speak
+            )
+            v_inner = -(
+                32.0
+                + 18.0 * self._w_listen
+                + 142.0 * self._w_think
+                + (45.0 + 75.0 * self._voice) * self._w_speak
+            )
+            sway_rate = (
+                0.72
+                + 0.30 * self._w_listen
+                + 1.15 * self._w_think
+                + (0.95 + 1.10 * self._voice) * self._w_speak
+            )
+            tgt_energy = (
+                0.38
+                + 0.12 * math.sin(self._breathe)
+                + (0.18 + 0.35 * self._mic_pulse) * self._w_listen
+                + (0.48 + 0.14 * math.sin(self._t * 6.5)) * self._w_think
+                + (0.34 + 0.62 * self._voice) * self._w_speak
+            )
 
-        # Transicao suave de velocidade e energia
-        self._rot_speed += (tgt_speed - self._rot_speed) * _rate(dt, 0.30)
-        self._energy += (tgt_energy - self._energy) * _rate(dt, 0.25)
+        self._energy += (tgt_energy - self._energy) * _rate(dt, 0.18)
+        self._outer_phase = (self._outer_phase + v_outer * dt) % 360.0
+        self._arc_phase_a = (self._arc_phase_a + v_mid_a * dt) % 360.0
+        self._arc_phase_b = (self._arc_phase_b + v_mid_b * dt) % 360.0
+        self._inner_phase = (self._inner_phase + v_inner * dt) % 360.0
+        self._sway_phase += sway_rate * dt
 
-        # Rotacao do cristal e do miolo interno
-        self._yaw += self._rot_speed * dt
-        self._core_yaw -= (self._rot_speed * 1.4 + 0.2) * dt
+        # Em THINKING os beacons destravam e orbitam velozmente; nos demais estados reancoram suavemente no equador
+        if self._w_think > 0.05:
+            self._beacon_orbit = (self._beacon_orbit + (55.0 + 145.0 * self._w_think) * dt) % 360.0
+        elif abs(self._beacon_orbit) > 0.2:
+            # Retorna pelo caminho angular mais curto para 0°
+            rem = ((self._beacon_orbit + 180.0) % 360.0) - 180.0
+            self._beacon_orbit = (rem * (1.0 - _rate(dt, 0.18))) % 360.0
+            if abs(((self._beacon_orbit + 180.0) % 360.0) - 180.0) < 0.3:
+                self._beacon_orbit = 0.0
 
-        # Anel de pulso rotacao
-        self._ring_angle += (0.45 + 0.3 * self._energy) * dt
-        self._sub_ring_angle -= (0.35 + 0.25 * self._energy) * dt
+        # Scanner vertical interno para THINKING
+        self._scan_phase = (self._scan_phase + dt * (0.45 + 1.35 * self._w_think)) % 1.0
 
-        # Glance decaimento / rastreamento
+        # Ondas convergentes (LISTENING: fora -> dentro)
+        in_speed = 0.42 + 0.55 * self._mic_pulse
+        for i in range(len(self._inward_waves)):
+            self._inward_waves[i] = (self._inward_waves[i] + dt * in_speed) % 1.0
+
+        # Ondas sônicas expansivas (SPEAKING: núcleo -> fora)
+        out_speed = 0.72 + 1.05 * self._voice
+        for i in range(len(self._outward_waves)):
+            self._outward_waves[i] = (self._outward_waves[i] + dt * out_speed) % 1.0
+
+        # Glance / olhar direcional
         gx_tgt, gy_tgt, g_until = self._glance_tgt
         if self._t > g_until:
             gx_tgt, gy_tgt = 0.0, 0.0
-        r_g = _rate(dt, 0.25)
-        self._glance_x += (gx_tgt - self._glance_x) * r_g
-        self._glance_y += (gy_tgt - self._glance_y) * r_g
-
-        # Propagacao de ondas de pulso
-        wave_boost = 1.0 + 1.4 * self._amp if self._speaking else 0.8
-        for w in self._pulse_waves:
-            w["phase"] = (w["phase"] + dt * w["speed"] * wave_boost) % 1.0
+        rg = _rate(dt, 0.22)
+        self._glance_x += (gx_tgt - self._glance_x) * rg
+        self._glance_y += (gy_tgt - self._glance_y) * rg
 
     def paint(
         self,
@@ -340,467 +343,616 @@ class HoloCrystal:
         accent: QColor,
         bg: QColor,
     ) -> None:
-        """Renderiza o modelo Crystal Pulse no canvas do HUD."""
-        if r <= 2.0 or not painter.isActive():
+        """Renderiza os anéis orbitais multi-estado e o cristal Shield Ruby 2.5D."""
+        if r <= 4.0 or not painter.isActive():
             return
 
         p = painter
         p.save()
         p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
 
-        # D19I: the HUD provides orange (#ff6b00) when speaking. Crystal Pulse
-        # deliberately has a monochromatic red identity in all active states.
-        # Preserve the muted grey palette when the microphone is muted.
-        pri = QColor(primary)
-        acc = QColor(primary)
-        if not self._muted:
-            acc.setRed(max(190, pri.red()))
-            acc.setGreen(min(32, pri.green()))
-            acc.setBlue(min(70, pri.blue()))
-        energy = max(0.0, min(1.5, self._energy))
-        amp = max(0.0, min(1.0, self._amp))
+        base = QColor(primary)
+        muted = self._muted
+        energy = _clamp(self._energy, 0.0, 1.5)
+        voice = _clamp(self._voice, 0.0, 1.0)
+        mic = _clamp(self._mic_pulse, 0.0, 1.0)
+        wl = _clamp(self._w_listen, 0.0, 1.0)
+        wt = _clamp(self._w_think, 0.0, 1.0)
+        ws = _clamp(self._w_speak, 0.0, 1.0)
 
-        # 1. Aura Central / Brilho Difuso de Fundo
-        aura_r = r * (0.56 + 0.07 * amp + 0.025 * math.sin(self._breathe))
-        aura_grad = QRadialGradient(cx, cy, aura_r)
-        aura_alpha = int(28 + 40 * energy + 52 * amp)
-        aura_grad.setColorAt(0.0, _c(acc, aura_alpha))
-        aura_grad.setColorAt(0.35, _c(pri, int(aura_alpha * 0.40)))
-        aura_grad.setColorAt(1.0, QColor(0, 0, 0, 0))
+        R = r * 0.90
+
+        # ── 1. Sistema Orbital de 3 Anéis Vivos + Ondas de Estado ────────────────
+        self._paint_hud_rings(p, cx, cy, R, base, energy, voice, mic, wl, wt, ws, muted)
+
+        # ── 2. Cinemática 2.5D e Articulação Física do Cristal ───────────────────
+        sway = math.sin(self._sway_phase) * (0.024 + 0.014 * wt + 0.012 * ws) + self._glance_x * 0.075
+        tilt_y = math.cos(self._sway_phase * 0.78) * 0.009 + self._glance_y * 0.055
+
+        # Em SPEAKING o cristal articula visivelmente a largura dos ombros e a altura das pontas
+        speak_w_expand = 1.0 + (0.088 * voice + 0.022 * self._v_open) * ws
+        speak_h_expand = 1.0 + (0.052 * voice + 0.018 * self._v_open) * ws
+        listen_breathe = 0.012 * math.sin(self._breathe) * (1.0 + 0.5 * wl) + 0.024 * mic * wl
+
+        sx = R * (1.0 + listen_breathe) * speak_w_expand
+        sy = R * (1.0 + listen_breathe * 0.8) * speak_h_expand
+
+        def pt(nx: float, ny: float, depth_factor: float = 0.0) -> QPointF:
+            px_off = sway * depth_factor
+            py_off = tilt_y * depth_factor * 0.65
+            return QPointF(cx + (nx + px_off) * sx, cy + (ny + py_off) * sy)
+
+        # Silhueta externa fiel à referência + crista vertical central única (sem cone/reflexo central)
+        p_top = pt(0.000, -1.018, 0.30)
+        p_sl = pt(-0.441, -0.295, 0.22)
+        p_sr = pt(+0.441, -0.295, 0.22)
+        p_kl = pt(-0.286, +0.454, 0.20)
+        p_kr = pt(+0.286, +0.454, 0.20)
+        p_bot = pt(0.000, +1.042, 0.28)
+
+        sh_y = p_sl.y()
+        p_sr = QPointF(p_sr.x(), sh_y)
+        p_sh_mid = QPointF(pt(0.000, -0.295, 0.72).x(), sh_y)
+        p_core = pt(0.000, +0.050, 0.72)
+
+        hull_poly = QPolygonF([p_top, p_sr, p_kr, p_bot, p_kl, p_sl])
+        hull_path = QPainterPath()
+        hull_path.addPolygon(hull_poly)
+        hull_path.closeSubpath()
+
+        light_shift = _clamp(sway * 3.2, -0.15, 0.15)
+        active_drive = voice * ws + mic * wl * 0.65
+
+        def think_shimmer(idx: int) -> float:
+            if wt <= 0.01:
+                return 0.0
+            return wt * 0.11 * (0.5 + 0.5 * math.sin(self._t * 6.8 + idx * 0.95))
+
+        # ── 3. Oclusão #000000 + Preenchimento Limpo das Facetas de Vidro Rubi ───
+        # Oclui os anéis que passam atrás do cristal para não criarem arcos fantasma na coroa
         p.setPen(Qt.PenStyle.NoPen)
-        p.setBrush(QBrush(aura_grad))
-        p.drawEllipse(QRectF(cx - aura_r, cy - aura_r, aura_r * 2.0, aura_r * 2.0))
+        p.setBrush(QBrush(QColor(0, 0, 0, 255)))
+        p.drawPolygon(hull_poly)
 
-        # 2. Ondas de Pulso de Voz Expansivas
-        self._paint_voice_pulse_waves(p, cx, cy, r, pri, acc, amp, energy)
+        crown_e = 0.03 * energy + 0.07 * active_drive
+        body_e = 0.05 * energy + 0.14 * active_drive
 
-        # 3. Aneis Tecnologicos / Segmentados de Energia
-        self._paint_energy_rings(p, cx, cy, r, pri, acc, amp, energy)
+        # 3.1 Coroa Superior Esquerda (T -> SL -> Meio da Cintura)
+        g_cl = QLinearGradient(p_top, p_sl)
+        g_cl.setColorAt(0.0, _tone(base, 0.31 - light_shift * 0.25 + crown_e + think_shimmer(0) * 0.45, alpha=245, muted=muted))
+        g_cl.setColorAt(1.0, _tone(base, 0.18 - light_shift * 0.20 + crown_e * 0.6, alpha=245, muted=muted))
+        p.setBrush(QBrush(g_cl))
+        p.drawPolygon(QPolygonF([p_top, p_sl, p_sh_mid]))
 
-        # 4. Matriz de Transformacao 3D do Cristal
-        # Rotacao principal em torno do eixo vertical Y (yaw)
-        yaw = self._yaw
-        Ry = np.array([
-            [math.cos(yaw), 0.0, math.sin(yaw)],
-            [0.0, 1.0, 0.0],
-            [-math.sin(yaw), 0.0, math.cos(yaw)],
-        ], dtype=np.float32)
+        # 3.2 Coroa Superior Direita (T -> Meio da Cintura -> SR)
+        g_cr = QLinearGradient(p_top, p_sr)
+        g_cr.setColorAt(0.0, _tone(base, 0.39 + light_shift * 0.25 + crown_e + think_shimmer(1) * 0.45, alpha=245, muted=muted))
+        g_cr.setColorAt(0.65, _tone(base, 0.30 + light_shift * 0.20 + crown_e * 0.8, alpha=245, muted=muted))
+        g_cr.setColorAt(1.0, _tone(base, 0.22 + light_shift * 0.15 + crown_e * 0.5, alpha=245, muted=muted))
+        p.setBrush(QBrush(g_cr))
+        p.drawPolygon(QPolygonF([p_top, p_sh_mid, p_sr]))
 
-        # Inclinacao suave em direcao a camera (pitch ~ 12 deg + glance)
-        pitch = 0.20 + self._glance_y * 0.22
-        Rx = np.array([
-            [1.0, 0.0, 0.0],
-            [0.0, math.cos(pitch), -math.sin(pitch)],
-            [0.0, math.sin(pitch), math.cos(pitch)],
-        ], dtype=np.float32)
+        # 3.3 Corpo Superior Esquerdo (SL -> Meio da Cintura -> Core)
+        g_bul = QLinearGradient(QPointF(p_sl.x() * 0.5 + p_sh_mid.x() * 0.5, sh_y), p_core)
+        g_bul.setColorAt(0.0, _tone(base, 0.24 - light_shift * 0.18 + body_e * 0.6 + think_shimmer(2) * 0.5, alpha=245, muted=muted))
+        g_bul.setColorAt(1.0, _tone(base, 0.48 + body_e, white_lift=0.04 * voice * ws, alpha=245, muted=muted))
+        p.setBrush(QBrush(g_bul))
+        p.drawPolygon(QPolygonF([p_sl, p_sh_mid, p_core]))
 
-        # Roll suave com glance
-        roll = self._glance_x * 0.18
-        Rz = np.array([
-            [math.cos(roll), -math.sin(roll), 0.0],
-            [math.sin(roll), math.cos(roll), 0.0],
-            [0.0, 0.0, 1.0],
-        ], dtype=np.float32)
+        # 3.4 Corpo Superior Direito (Meio da Cintura -> SR -> Core)
+        g_bur = QLinearGradient(QPointF(p_sr.x() * 0.5 + p_sh_mid.x() * 0.5, sh_y), p_core)
+        g_bur.setColorAt(0.0, _tone(base, 0.29 + light_shift * 0.18 + body_e * 0.6 + think_shimmer(3) * 0.5, alpha=245, muted=muted))
+        g_bur.setColorAt(1.0, _tone(base, 0.52 + body_e, white_lift=0.05 * voice * ws, alpha=245, muted=muted))
+        p.setBrush(QBrush(g_bur))
+        p.drawPolygon(QPolygonF([p_sh_mid, p_sr, p_core]))
 
-        R_rot = Rz @ Rx @ Ry
+        # 3.5 Asa Média Esquerda (SL -> Core -> KL)
+        g_ml = QLinearGradient(p_core, QPointF((p_sl.x() + p_kl.x()) * 0.5, (p_sl.y() + p_kl.y()) * 0.5))
+        g_ml.setColorAt(0.0, _tone(base, 0.52 - light_shift * 0.25 + body_e + think_shimmer(4) * 0.6, alpha=245, muted=muted))
+        g_ml.setColorAt(1.0, _tone(base, 0.25 - light_shift * 0.20 + body_e * 0.4, alpha=245, muted=muted))
+        p.setBrush(QBrush(g_ml))
+        p.drawPolygon(QPolygonF([p_sl, p_core, p_kl]))
 
-        # Projecao do Cristal Interno (Core em rotacao contrarrotativa)
-        core_yaw = self._core_yaw
-        core_Ry = np.array([
-            [math.cos(core_yaw), 0.0, math.sin(core_yaw)],
-            [0.0, 1.0, 0.0],
-            [-math.sin(core_yaw), 0.0, math.cos(core_yaw)],
-        ], dtype=np.float32)
-        core_R = Rz @ Rx @ core_Ry
-        core_scale = r * 0.30 * (1.0 + 0.12 * amp)
-        self._paint_polyhedron(
-            p, cx, cy, r,
-            verts_3d=_CORE_VERTS * core_scale,
-            faces=_CORE_FACES,
-            normals_3d=_CORE_FACE_NORMALS,
-            rot_mat=core_R,
-            primary=pri,
-            accent=acc,
-            is_core=True,
-            energy=energy,
-            amp=amp,
+        # 3.6 Asa Média Direita (SR -> KR -> Core)
+        g_mr = QLinearGradient(p_core, QPointF((p_sr.x() + p_kr.x()) * 0.5, (p_sr.y() + p_kr.y()) * 0.5))
+        g_mr.setColorAt(0.0, _tone(base, 0.55 + light_shift * 0.25 + body_e + think_shimmer(5) * 0.6, alpha=245, muted=muted))
+        g_mr.setColorAt(1.0, _tone(base, 0.29 + light_shift * 0.25 + body_e * 0.5, alpha=245, muted=muted))
+        p.setBrush(QBrush(g_mr))
+        p.drawPolygon(QPolygonF([p_sr, p_kr, p_core]))
+
+        # 3.7 Pavilhão Inferior Esquerdo (KL -> Core -> B)
+        g_ll = QLinearGradient(p_core, p_bot)
+        g_ll.setColorAt(0.0, _tone(base, 0.48 + body_e + think_shimmer(6) * 0.6, alpha=245, muted=muted))
+        g_ll.setColorAt(0.55, _tone(base, 0.34 + body_e * 0.6, alpha=245, muted=muted))
+        g_ll.setColorAt(1.0, _tone(base, 0.19 + body_e * 0.3, alpha=245, muted=muted))
+        p.setBrush(QBrush(g_ll))
+        p.drawPolygon(QPolygonF([p_kl, p_core, p_bot]))
+
+        # 3.8 Pavilhão Inferior Direito (Core -> KR -> B)
+        g_lr = QLinearGradient(p_core, p_bot)
+        g_lr.setColorAt(0.0, _tone(base, 0.41 + body_e * 0.9 + think_shimmer(7) * 0.6, alpha=245, muted=muted))
+        g_lr.setColorAt(0.55, _tone(base, 0.27 + body_e * 0.5, alpha=245, muted=muted))
+        g_lr.setColorAt(1.0, _tone(base, 0.15 + body_e * 0.25, alpha=245, muted=muted))
+        p.setBrush(QBrush(g_lr))
+        p.drawPolygon(QPolygonF([p_core, p_kr, p_bot]))
+
+        # 3.9 Lapidação: contraste entre facetas + diferença sutil de tom esquerda/direita
+        p.setPen(Qt.PenStyle.NoPen)
+        for poly, shade in (
+            ((p_top, p_sl, p_sh_mid), 52),
+            ((p_sl, p_sh_mid, p_core), 44),
+            ((p_sl, p_core, p_kl), 22),
+            ((p_kl, p_core, p_bot), 46),
+        ):
+            p.setBrush(QColor(0, 0, 0, shade))
+            p.drawPolygon(QPolygonF(list(poly)))
+        for poly, lift in (
+            ((p_top, p_sh_mid, p_sr), 20),
+            ((p_sh_mid, p_sr, p_core), 10),
+            ((p_sr, p_kr, p_core), 24),
+            ((p_core, p_kr, p_bot), 8),
+        ):
+            p.setBrush(_tone(base, 0.95, white_lift=0.10, alpha=lift, muted=muted))
+            p.drawPolygon(QPolygonF(list(poly)))
+
+        # ── 4. Interior Recortado (Pequeno Brilho no Ápice + Luz Interna Sutil) ──
+        p.save()
+        p.setClipPath(hull_path)
+
+        # Pequeno brilho localizado apenas no ápice superior
+        apex_glow_r = R * (0.095 + 0.025 * active_drive)
+        apex_glow = QRadialGradient(p_top, apex_glow_r)
+        apex_glow.setColorAt(0.0, _tone(base, 0.95, white_lift=0.18, alpha=105 + 40 * active_drive, muted=muted))
+        apex_glow.setColorAt(0.45, _tone(base, 0.70, white_lift=0.03, alpha=32 + 18 * active_drive, muted=muted))
+        apex_glow.setColorAt(1.0, _TRANSPARENT_BLACK)
+        p.setBrush(QBrush(apex_glow))
+        p.drawEllipse(QRectF(p_top.x() - apex_glow_r, p_top.y() - apex_glow_r, apex_glow_r * 2.0, apex_glow_r * 2.0))
+
+        # Luz radial sutil centrada no núcleo (sem losango/cone de reflexo invadindo o meio)
+        glow_r = R * (0.26 + 0.15 * voice * ws + 0.06 * mic * wl + 0.02 * energy)
+        inner_glow = QRadialGradient(p_core, glow_r)
+        g_a0 = 82 + 28 * energy + 92 * voice * ws + 34 * mic * wl
+        g_lift = 0.12 + 0.22 * voice * ws
+        inner_glow.setColorAt(0.00, _tone(base, 0.98, white_lift=g_lift, alpha=min(235.0, g_a0), muted=muted))
+        inner_glow.setColorAt(0.32, _tone(base, 0.86, white_lift=g_lift * 0.30, alpha=g_a0 * 0.45, muted=muted))
+        inner_glow.setColorAt(0.68, _tone(base, 0.64, white_lift=0.0, alpha=g_a0 * 0.14, muted=muted))
+        inner_glow.setColorAt(1.00, _TRANSPARENT_BLACK)
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QBrush(inner_glow))
+        p.drawEllipse(QRectF(p_core.x() - glow_r, p_core.y() - glow_r, glow_r * 2.0, glow_r * 2.0))
+
+        # ── 4b. Cristal do Núcleo 3D (Bipirâmide Octaédrica com Paralaxe e Profundidade) ──
+        # Levitação suave viva independente (sensação de núcleo vivo suspenso em gravidade zero)
+        inner_float_y = 0.008 * math.sin(self._t * 2.2) + 0.004 * math.cos(self._t * 1.6)
+        inner_pulse = 1.0 + 0.035 * math.sin(self._t * 3.1) + 0.14 * voice * ws + 0.06 * mic * wl
+
+        # Dimensões imponentes do cristal interno (permanece estritamente abaixo da cintura sh_y = -0.295)
+        # Alongado na parte inferior acompanhando a espinha central, com presença volumétrica real
+        w_in = 0.190 * inner_pulse
+        h_top_in = 0.230 * inner_pulse
+        h_bot_in = 0.460 * inner_pulse
+        core_ny = 0.058 + inner_float_y
+
+        # Vértices 2.5D com profundidade de paralaxe volumétrica:
+        # d_front projeta-se à frente (depth=1.15), d_back fica no fundo (depth=0.20),
+        # fazendo o cristal interno angular e rotacionar realisticamente em 3D conforme sway e glance!
+        d_top = pt(0.000, core_ny - h_top_in, 0.68)
+        d_bot = pt(0.000, core_ny + h_bot_in, 0.68)
+        d_l = pt(-w_in, core_ny, 0.52)
+        d_r = pt(+w_in, core_ny, 0.52)
+        d_front = pt(0.000, core_ny, 1.15)
+        d_back = pt(0.000, core_ny, 0.20)
+
+        # Iluminação dinâmica 3D por faceta (reage à inclinação angular sway, glance e refração interna)
+        sway_n = _clamp(sway * 4.5, -0.6, 0.6)
+        lum_l = _clamp(0.48 - sway_n * 0.42, 0.18, 0.88)
+        lum_r = _clamp(0.48 + sway_n * 0.42, 0.18, 0.88)
+        # Brilho cáustico interno refrativo (o cristal "respira" e refrata a luz em movimento contínuo)
+        shimmer_in = 0.08 * math.sin(self._t * 3.4 + sway * 6.0)
+        base_a = 100 + 28 * energy + 75 * voice * ws + 26 * mic * wl
+
+        # 1) Fundo refrativo profundo (massa volumétrica interna do cristal)
+        back_grad = QLinearGradient(d_top, d_bot)
+        back_grad.setColorAt(0.0, _tone(base, 0.78, white_lift=0.03, alpha=base_a * 0.42, muted=muted))
+        back_grad.setColorAt(0.4, _tone(base, 0.95, white_lift=0.10 + shimmer_in, alpha=base_a * 0.72, muted=muted))
+        back_grad.setColorAt(1.0, _tone(base, 0.70, white_lift=0.00, alpha=base_a * 0.32, muted=muted))
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QBrush(back_grad))
+        p.drawPolygon(QPolygonF([d_top, d_r, d_bot, d_l]))
+
+        # 2) Facetas frontais 3D (4 triângulos com sombreamento volumétrico e refração)
+        # Faceta Superior Esquerda
+        g_tl = QLinearGradient(d_front, QPointF(d_l.x() * 0.7 + d_top.x() * 0.3, d_l.y() * 0.7 + d_top.y() * 0.3))
+        g_tl.setColorAt(0.0, _tone(base, 1.00, white_lift=0.18 * lum_l + 0.12 * voice * ws + shimmer_in, alpha=min(240.0, base_a * (0.85 + 0.35 * lum_l)), muted=muted))
+        g_tl.setColorAt(1.0, _tone(base, 0.80, white_lift=0.02, alpha=base_a * 0.32 * lum_l, muted=muted))
+        p.setBrush(QBrush(g_tl))
+        p.drawPolygon(QPolygonF([d_top, d_l, d_front]))
+
+        # Faceta Superior Direita
+        g_tr = QLinearGradient(d_front, QPointF(d_r.x() * 0.7 + d_top.x() * 0.3, d_r.y() * 0.7 + d_top.y() * 0.3))
+        g_tr.setColorAt(0.0, _tone(base, 1.00, white_lift=0.18 * lum_r + 0.12 * voice * ws - shimmer_in, alpha=min(240.0, base_a * (0.85 + 0.35 * lum_r)), muted=muted))
+        g_tr.setColorAt(1.0, _tone(base, 0.80, white_lift=0.02, alpha=base_a * 0.32 * lum_r, muted=muted))
+        p.setBrush(QBrush(g_tr))
+        p.drawPolygon(QPolygonF([d_top, d_front, d_r]))
+
+        # Faceta Inferior Esquerda
+        g_bl = QLinearGradient(d_front, d_bot)
+        g_bl.setColorAt(0.0, _tone(base, 0.98, white_lift=0.14 * lum_l + shimmer_in * 0.6, alpha=base_a * (0.75 + 0.30 * lum_l), muted=muted))
+        g_bl.setColorAt(1.0, _tone(base, 0.70, white_lift=0.00, alpha=base_a * 0.25, muted=muted))
+        p.setBrush(QBrush(g_bl))
+        p.drawPolygon(QPolygonF([d_bot, d_front, d_l]))
+
+        # Faceta Inferior Direita
+        g_br = QLinearGradient(d_front, d_bot)
+        g_br.setColorAt(0.0, _tone(base, 0.98, white_lift=0.14 * lum_r - shimmer_in * 0.6, alpha=base_a * (0.75 + 0.30 * lum_r), muted=muted))
+        g_br.setColorAt(1.0, _tone(base, 0.70, white_lift=0.00, alpha=base_a * 0.25, muted=muted))
+        p.setBrush(QBrush(g_br))
+        p.drawPolygon(QPolygonF([d_bot, d_r, d_front]))
+
+        # 3) Arestas 3D luminosas do cristal interno (destacam as quinas volumétricas com brilho vítreo)
+        in_edge_alpha = 155 + 32 * energy + 65 * voice * ws + 24 * mic * wl
+        in_pen = QPen(
+            _tone(base, 0.98, white_lift=0.22 + 0.15 * voice * ws, alpha=in_edge_alpha, muted=muted),
+            1.10 + 0.35 * voice * ws,
+            Qt.PenStyle.SolidLine,
+            Qt.PenCapStyle.RoundCap,
         )
-
-        # Projecao do Cristal Principal
-        crystal_scale = r * 0.50 * (1.0 + 0.04 * amp)
-        self._paint_polyhedron(
-            p, cx, cy, r,
-            verts_3d=_CRYSTAL_VERTS * crystal_scale,
-            faces=_CRYSTAL_FACES,
-            normals_3d=_CRYSTAL_FACE_NORMALS,
-            rot_mat=R_rot,
-            primary=pri,
-            accent=acc,
-            is_core=False,
-            energy=energy,
-            amp=amp,
-        )
-
-        # 5. Concentrated ruby energy lens: sharp centre, soft local falloff.
-        # The black background outside the crystal remains untouched.
-        lens_radius = r * (0.17 + 0.035 * amp)
-        lens = QRadialGradient(cx, cy, lens_radius)
-        lens.setColorAt(0.0, QColor(255, 48, 80, min(220, int(110 + 75 * energy + 50 * amp))))
-        lens.setColorAt(0.19, QColor(255, 18, 47, min(160, int(60 + 50 * energy + 45 * amp))))
-        lens.setColorAt(0.58, QColor(154, 0, 23, 22))
-        lens.setColorAt(1.0, _TRANSPARENT_BLACK)
-        p.setPen(Qt.PenStyle.NoPen)
-        p.setBrush(QBrush(lens))
-        p.drawEllipse(QRectF(cx - lens_radius, cy - lens_radius,
-                             lens_radius * 2.0, lens_radius * 2.0))
-
-        # Small travelling light glints on the near orbit, not a full glow halo.
-        orbit_r = r * 0.84
-        for phase in (0.0, 2.094, 4.189):
-            ang = self._ring_angle + phase
-            sx = cx + math.cos(ang) * orbit_r
-            sy = cy + math.sin(ang) * orbit_r
-            p.setPen(QPen(QColor(255, 55, 82, int(85 + 85 * energy)), 2.0))
-            p.drawPoint(QPointF(sx, sy))
-
-        # 6. Ponto Central de Foco Energetico (Glow Core)
-        core_dot_r = r * (0.040 + 0.020 * amp)
-        core_glow = QRadialGradient(cx, cy, core_dot_r * 2.0)
-        dot_a = min(255, int(155 + 65 * amp + 18 * energy))
-        core_glow.setColorAt(0.0, _c(acc, dot_a))
-        core_glow.setColorAt(0.38, _c(pri, int(dot_a * 0.58)))
-        core_glow.setColorAt(1.0, _TRANSPARENT_BLACK)
-        p.setPen(Qt.PenStyle.NoPen)
-        p.setBrush(QBrush(core_glow))
-        p.drawEllipse(QRectF(cx - core_dot_r * 2.0, cy - core_dot_r * 2.0,
-                             core_dot_r * 4.0, core_dot_r * 4.0))
+        p.setPen(in_pen)
+        # Cristas frontais salientes (cruz 3D central projetada)
+        p.drawLine(QLineF(d_top, d_front))
+        p.drawLine(QLineF(d_bot, d_front))
+        p.drawLine(QLineF(d_l, d_front))
+        p.drawLine(QLineF(d_r, d_front))
+        # Contorno perimétrico fino
+        p.setPen(QPen(_tone(base, 0.90, white_lift=0.08, alpha=in_edge_alpha * 0.65, muted=muted), 0.85))
+        p.drawPolygon(QPolygonF([d_top, d_r, d_bot, d_l]))
 
         p.restore()
 
-    def _paint_voice_pulse_waves(
-        self,
-        p: QPainter,
-        cx: float,
-        cy: float,
-        r: float,
-        pri: QColor,
-        acc: QColor,
-        amp: float,
-        energy: float,
-    ) -> None:
-        """Desenha ondas circulares expansivas que emanam do cristal conforme a voz."""
-        base_r = r * 0.55
-        max_r = r * 0.98
-
+        # ── 5. Arestas de Facetas, Espinha Vertical, "X", Cintura e Contorno ─────
         p.setBrush(Qt.BrushStyle.NoBrush)
-        for wave in self._pulse_waves:
-            ph = wave["phase"]
-            wr = base_r + (max_r - base_r) * ph
-            alpha_fade = math.sin(ph * math.pi)
-            alpha = int(alpha_fade * (30 + 130 * amp + 35 * energy))
 
-            if alpha <= 2:
-                continue
-
-            pen_w = 1.0 + 1.2 * (1.0 - ph)
-            p.setPen(QPen(_c(acc if ph < 0.5 else pri, alpha), pen_w))
-            p.drawEllipse(QRectF(cx - wr, cy - wr, wr * 2.0, wr * 2.0))
-
-    def _paint_energy_rings(
-        self,
-        p: QPainter,
-        cx: float,
-        cy: float,
-        r: float,
-        pri: QColor,
-        acc: QColor,
-        amp: float,
-        energy: float,
-        _bloom_pass: bool = False,
-    ) -> None:
-        """D19L: two independent tilted 3D-looking orbital rings.
-
-        Each short arc is projected from a tilted circle. Continuous depth
-        lighting avoids abrupt colour/alpha changes as the rings rotate.
-        """
-        # D19P: render a clean, narrow emissive orbit into an offscreen layer,
-        # then apply a true separable Gaussian blur before composite.  Drawing
-        # many fat round-capped microsegments caused the visible checker texture.
-        if not _bloom_pass:
-            extent = r * 1.07
-            # Keep the spatial blur radius similar to D19P, while reducing
-            # the offscreen pixel count and recalculating at most 10 Hz.
-            # D19S: cap bloom texture size in maximized/fullscreen windows.
-            # Sharp rings and facets still render at the full widget resolution.
-            scale = 0.40
-            nominal_side = max(48, int(math.ceil(2.0 * extent * scale)))
-            side = min(160, nominal_side)
-            palette_key = (pri.rgba(), acc.rgba())
-            needs_refresh = (
-                self._bloom_cache is None
-                or self._bloom_last_size != side
-                or abs(self._bloom_last_r - r) > 0.5
-                or self._bloom_last_palette != palette_key
-                or self._t < self._bloom_last_t
-                or self._t - self._bloom_last_t >= 0.20
-            )
-            if needs_refresh:
-                if self._bloom_emission is None or self._bloom_emission_side != side:
-                    self._bloom_emission = QImage(
-                        side, side, QImage.Format.Format_ARGB32_Premultiplied
-                    )
-                    self._bloom_emission_side = side
-                light = self._bloom_emission
-                light.fill(Qt.GlobalColor.transparent)
-                gp = QPainter(light)
-                gp.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-                gp.scale(side / (2.0 * extent), side / (2.0 * extent))
-                gp.translate(extent - cx, extent - cy)
-                self._paint_energy_rings(gp, cx, cy, r, pri, acc, amp, energy, True)
-                gp.end()
-                # Keep the glow's apparent width when the internal resolution
-                # is capped; do not let a fixed pixel sigma shrink fullscreen.
-                blur_sigma = max(2.0, 4.1 * side / nominal_side)
-                self._bloom_cache = _gaussian_blur_image(light, sigma=blur_sigma)
-                self._bloom_last_t = self._t
-                self._bloom_last_size = side
-                self._bloom_last_r = r
-                self._bloom_last_palette = palette_key
-            p.save()
-            p.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, True)
-            p.drawImage(QRectF(cx - extent, cy - extent, 2.0 * extent, 2.0 * extent),
-                        self._bloom_cache)
-            p.restore()
-        p.setBrush(Qt.BrushStyle.NoBrush)
-        # Reuse the existing smoothed energy/voice signals and ring angles.
-        voice = min(1.0, amp)
-        radius_pulse = 1.0 + 0.025 * voice
-
-        # (radius, tilt around X, tilt around Y, phase, segment count, line width)
-        rings = (
-            (0.84, 0.58, -0.36, self._ring_angle, 4, 1.35),
-            (0.69, -0.46, 0.51, self._sub_ring_angle, 5, 0.95),
+        # Crista vertical superior fina dividindo as 2 facetas da coroa (T -> Meio da Cintura -> Core)
+        crown_rib_alpha = 165 + 30 * energy + 40 * wt + 35 * voice * ws
+        crown_rib_pen = QPen(
+            _tone(base, 0.92, white_lift=0.10 + 0.10 * voice * ws, alpha=crown_rib_alpha, muted=muted),
+            1.0,
+            Qt.PenStyle.SolidLine,
+            Qt.PenCapStyle.RoundCap,
         )
-        for ring_idx, (radius, tilt_x, tilt_y, phase, segments, width) in enumerate(rings):
-            ring_r = r * radius * radius_pulse
-            sx, cx_t = math.sin(tilt_x), math.cos(tilt_x)
-            sy, cy_t = math.sin(tilt_y), math.cos(tilt_y)
-            # Angular position determines a *moving* series of lit sections.
-            # Geometry is fixed in space; pattern moves, no hard on/off edges.
-            count = 108 if ring_idx == 0 else 90
-            base_alpha = (47 if ring_idx == 0 else 33) + 29 * energy + 44 * voice
-            gap = 0.30 if ring_idx == 0 else 0.42
-            # One projection per vertex, shared by neighbouring segments.
-            # Ring geometry itself is static; only visibility and colour move.
-            projected = []
-            for j in range(count + 1):
-                theta = math.tau * j / count
-                x = math.cos(theta)
-                y = math.sin(theta) * cx_t
-                z = math.sin(theta) * sx
-                xx = x * cy_t + z * sy
-                zz = -x * sy + z * cy_t
-                factor = 1.0 + zz * 0.055
-                projected.append((QPointF(cx + ring_r * xx * factor,
-                                          cy + ring_r * y * factor), zz))
-            for i in range(count):
-                tm = math.tau * (i + 0.5) / count
-                # Cosine-lobe segmentation: all fades continuous.
-                pattern = math.cos(segments * (tm - phase))
-                visibility = max(0.0, (pattern + gap) / (1.0 + gap))
-                visibility = visibility * visibility * (3.0 - 2.0 * visibility)
-                if visibility < 0.014:
-                    continue
+        p.setPen(crown_rib_pen)
+        p.drawLine(QLineF(p_top, p_sh_mid))
+        p.drawLine(QLineF(p_sh_mid, p_core))
 
-                pt0, z0 = projected[i]
-                pt1, z1 = projected[i + 1]
-                depth = 0.5 + 0.5 * (z0 + z1) * 0.5
-                # Rear arc quieter; near arc illuminated smoothly.
-                alpha = int(base_alpha * visibility * (0.38 + 0.62 * depth))
-                if alpha < 2:
-                    continue
-                filament_w = width * (0.85 + 0.3 * depth)
-                if _bloom_pass:
-                    # One emission stroke only; the Gaussian kernel supplies
-                    # the softness instead of stacked, rounded wide strokes.
-                    boost = 1.0 + 0.35 * voice + 0.15 * energy
-                    p.setPen(QPen(QColor(255, 12, 46,
-                                         min(230, int(alpha * 1.55 * boost))),
-                                  filament_w + 4.0,
-                                  Qt.PenStyle.SolidLine, Qt.PenCapStyle.FlatCap))
-                    p.drawLine(pt0, pt1)
-                    continue
-                # D19U: the cached Gaussian layer supplies the soft halo.
-                # Keep just the sharp filament here; the old extra wide stroke
-                # doubled draw calls on every short orbit segment.
-                p.setPen(QPen(_c(pri, alpha), filament_w,
-                              Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
-                p.drawLine(pt0, pt1)
+        inner_edge_alpha = 212 + 30 * energy + 30 * voice * ws
+        inner_w = 1.30 + 0.40 * voice * ws
+        inner_pen = QPen(
+            _tone(base, 0.98, white_lift=0.15 + 0.12 * voice * ws, alpha=inner_edge_alpha, muted=muted),
+            inner_w,
+            Qt.PenStyle.SolidLine,
+            Qt.PenCapStyle.RoundCap,
+            Qt.PenJoinStyle.RoundJoin,
+        )
+        p.setPen(inner_pen)
+        p.drawLine(QLineF(p_sl, p_sr))
 
-            if _bloom_pass:
-                continue
-            # Tiny orbital marker: slow motion, fades on the far side.
-            marker_t = phase + (0.6 if ring_idx == 0 else 2.1)
-            xx = math.cos(marker_t)
-            yy = math.sin(marker_t) * cx_t
-            zz = math.sin(marker_t) * sx
-            x_final = xx * cy_t + zz * sy
-            z_final = -xx * sy + zz * cy_t
-            depth = max(0.0, min(1.0, 0.5 + 0.5 * z_final))
-            marker_alpha = int((55 + 95 * voice + 35 * energy) * (0.22 + 0.78 * depth))
-            if marker_alpha > 4:
-                p.setPen(Qt.PenStyle.NoPen)
-                p.setBrush(_c(acc, marker_alpha))
-                dot_r = 1.6 + 0.7 * voice if ring_idx == 0 else 1.15
-                dot_x = cx + ring_r * x_final * (1.0 + z_final * 0.055)
-                dot_y = cy + ring_r * yy * (1.0 + z_final * 0.055)
-                # Local radial glow gives the orbiting energy bead a halo.
-                glow_r = dot_r * (4.2 + 0.5 * voice)
-                glow = QRadialGradient(dot_x, dot_y, glow_r)
-                glow.setColorAt(0.0, QColor(255, 45, 75, min(135, marker_alpha)))
-                glow.setColorAt(0.35, QColor(240, 5, 40, min(48, int(marker_alpha * 0.35))))
-                glow.setColorAt(1.0, _TRANSPARENT_BLACK)
-                p.setBrush(QBrush(glow))
-                p.drawEllipse(QRectF(dot_x - glow_r, dot_y - glow_r,
-                                     glow_r * 2.0, glow_r * 2.0))
-                p.setBrush(_c(acc, marker_alpha))
-                p.drawEllipse(QRectF(dot_x - dot_r, dot_y - dot_r,
-                                     dot_r * 2.0, dot_r * 2.0))
-                p.setBrush(Qt.BrushStyle.NoBrush)
+        # "X" central + Espinha vertical (pulsam rápido em THINKING e acendem forte em SPEAKING)
+        x_pulse = 45.0 * wt * abs(math.sin(self._t * 6.2)) + 50.0 * voice * ws
+        x_pen = QPen(
+            _tone(
+                base,
+                1.00,
+                white_lift=0.20 + 0.18 * voice * ws + 0.10 * wt,
+                alpha=min(255.0, inner_edge_alpha + x_pulse),
+                muted=muted,
+            ),
+            inner_w + 0.15 * wt,
+            Qt.PenStyle.SolidLine,
+            Qt.PenCapStyle.RoundCap,
+        )
+        p.setPen(x_pen)
+        p.drawLine(QLineF(p_sl, p_core))
+        p.drawLine(QLineF(p_sr, p_core))
+        p.drawLine(QLineF(p_core, p_kl))
+        p.drawLine(QLineF(p_core, p_kr))
+        p.drawLine(QLineF(p_core, p_bot))
 
-    def _paint_polyhedron(
+        outer_pen = QPen(
+            _tone(base, 1.00, white_lift=0.18 + 0.16 * voice * ws, alpha=228 + 27 * active_drive, muted=muted),
+            1.65 + 0.45 * voice * ws,
+            Qt.PenStyle.SolidLine,
+            Qt.PenCapStyle.RoundCap,
+            Qt.PenJoinStyle.MiterJoin,
+        )
+        p.setPen(outer_pen)
+        p.drawPolygon(hull_poly)
+
+        # ── 6. Orbe Rubi Central + Pontos de Ápice ───────────────────────────────
+        orb_r = R * (
+            0.046
+            + 0.024 * voice * ws
+            + 0.010 * mic * wl
+            + 0.004 * wt * math.sin(self._t * 9.0)
+            + 0.002 * math.sin(self._breathe * 1.4)
+        )
+        halo_r = orb_r * (2.25 + 1.05 * voice * ws + 0.40 * mic * wl)
+        orb_halo = QRadialGradient(p_core, halo_r)
+        orb_halo.setColorAt(0.0, _tone(base, 1.00, white_lift=0.38 + 0.25 * voice * ws, alpha=155 + 85 * active_drive, muted=muted))
+        orb_halo.setColorAt(0.55, _tone(base, 0.96, white_lift=0.18, alpha=64 + 55 * active_drive, muted=muted))
+        orb_halo.setColorAt(1.0, _TRANSPARENT_BLACK)
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QBrush(orb_halo))
+        p.drawEllipse(QRectF(p_core.x() - halo_r, p_core.y() - halo_r, halo_r * 2.0, halo_r * 2.0))
+
+        # Disco central nítido (aquece o centro para rosa-quente/branco nos picos de fala)
+        # Camada 2 do coração: anel fino de energia pulsando ao redor do disco (controlado)
+        ring_r = orb_r * (1.75 + 0.18 * math.sin(self._t * 3.0) + 0.45 * voice * ws)
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        p.setPen(QPen(_tone(base, 1.00, white_lift=0.22, alpha=105 + 70 * active_drive + 25 * energy, muted=muted), 1.0))
+        p.drawEllipse(QRectF(p_core.x() - ring_r, p_core.y() - ring_r, ring_r * 2.0, ring_r * 2.0))
+        p.setPen(Qt.PenStyle.NoPen)
+        core_lift = 0.33 + 0.34 * voice * ws + 0.12 * mic * wl
+        p.setBrush(QBrush(_tone(base, 1.00, white_lift=core_lift, alpha=248, muted=muted)))
+        p.drawEllipse(QRectF(p_core.x() - orb_r, p_core.y() - orb_r, orb_r * 2.0, orb_r * 2.0))
+
+        # Micro-losango luminoso no ápice superior e ponto na ponta inferior
+        tip_r = max(1.8, R * (0.013 + 0.007 * voice * ws))
+        tip_poly = QPolygonF([
+            QPointF(p_top.x(), p_top.y() - tip_r * 1.25),
+            QPointF(p_top.x() + tip_r, p_top.y()),
+            QPointF(p_top.x(), p_top.y() + tip_r * 1.25),
+            QPointF(p_top.x() - tip_r, p_top.y()),
+        ])
+        p.setBrush(QBrush(_tone(base, 1.00, white_lift=0.26 + 0.22 * voice * ws, alpha=238, muted=muted)))
+        p.drawPolygon(tip_poly)
+
+        bot_r = max(1.2, R * (0.008 + 0.005 * voice * ws))
+        p.setBrush(QBrush(_tone(base, 1.00, white_lift=0.22 + 0.20 * voice * ws, alpha=195 + 55 * active_drive, muted=muted)))
+        p.drawEllipse(QRectF(p_bot.x() - bot_r, p_bot.y() - bot_r, bot_r * 2.0, bot_r * 2.0))
+
+        p.restore()
+
+    def _paint_hud_rings(
         self,
         p: QPainter,
         cx: float,
         cy: float,
-        r: float,
-        verts_3d: np.ndarray,
-        faces: Sequence[tuple[int, int, int]],
-        normals_3d: np.ndarray,
-        rot_mat: np.ndarray,
-        primary: QColor,
-        accent: QColor,
-        is_core: bool,
+        R: float,
+        base: QColor,
         energy: float,
-        amp: float,
+        voice: float,
+        mic: float,
+        wl: float,
+        wt: float,
+        ws: float,
+        muted: bool,
     ) -> None:
-        """Projeta e renderiza um poliedro 3D com iluminacao e ordenacao de profundidade."""
-        v_rot = verts_3d @ rot_mat.T
+        """Desenha os 3 anéis orbitais vivos e os efeitos direcionais exclusivos de cada etapa."""
+        p.setBrush(Qt.BrushStyle.NoBrush)
 
-        cam_d = 4.2
-        z_norm = v_rot[:, 2] / max(1.0, r * 0.7)
-        w = cam_d - z_norm
-        np.maximum(w, 0.4, out=w)
-        proj = cam_d / w
+        # ── A. Ondas Direcionais Exclusivas de LISTENING vs SPEAKING ─────────────
+        # LISTENING: ondas acústicas convergentes (fora -> dentro, captando áudio)
+        if wl > 0.03 and not muted:
+            for ph in self._inward_waves:
+                # ph 0->1 move o raio de 0.99*R até 0.56*R
+                wr = R * (0.99 - 0.43 * ph)
+                env = math.sin(ph * math.pi)
+                alpha = env * wl * (46.0 + 115.0 * mic)
+                if alpha > 3.0:
+                    p.setPen(QPen(_tone(base, 0.78, white_lift=0.10, alpha=alpha, muted=muted), 1.0 + 0.6 * mic))
+                    p.drawEllipse(QRectF(cx - wr, cy - wr, wr * 2.0, wr * 2.0))
 
-        px = cx + v_rot[:, 0] * proj
-        py = cy + v_rot[:, 1] * proj
+        # SPEAKING: ondas sônicas expansivas (núcleo -> fora, projetando a voz)
+        if ws > 0.03 and not muted:
+            for ph in self._outward_waves:
+                wr = R * (0.42 + 0.66 * ph)
+                env = math.sin(ph * math.pi)
+                alpha = env * ws * (62.0 + 150.0 * voice)
+                if alpha > 3.0:
+                    pen_w = (1.1 + 1.4 * voice) * (1.15 - 0.45 * ph)
+                    p.setPen(
+                        QPen(
+                            _tone(base, 0.96, white_lift=0.16 * (1.0 - ph), alpha=alpha, muted=muted),
+                            pen_w,
+                        )
+                    )
+                    p.drawEllipse(QRectF(cx - wr, cy - wr, wr * 2.0, wr * 2.0))
 
-        # Transforma todas as normais de uma vez (matriz 3x3 x Nx3) — muito mais
-        # barato que produto vetorial + normalizacao por frame, por face.
-        n_rot = normals_3d @ rot_mat.T
+        # ── B. Anel Externo (r = 1.000 * R): Trilha + Bisel Rotativo + Satélites ─
+        r_outer = R * (1.0 + 0.014 * voice * ws)
+        outer_rect = QRectF(cx - r_outer, cy - r_outer, r_outer * 2.0, r_outer * 2.0)
 
-        face_depths = []
-        for idx, (i0, i1, i2) in enumerate(faces):
-            avg_z = (v_rot[i0, 2] + v_rot[i1, 2] + v_rot[i2, 2]) / 3.0
-            face_depths.append((avg_z, idx, i0, i1, i2))
+        # Trilha base sutil mantém o círculo externo de referência
+        track_alpha = 72 + 20 * energy
+        p.setPen(QPen(_tone(base, 0.34, crimson_blue_bias=0.28, alpha=track_alpha, muted=muted), 1.0))
+        p.drawEllipse(outer_rect)
 
-        face_depths.sort(key=lambda item: item[0])
+        # 4 arcos de bisel rotativos + ticks radiais nas extremidades (movimento sempre visível!)
+        bezel_alpha = 135 + 45 * wt + 55 * voice * ws + 25 * wl
+        bezel_pen = QPen(
+            _tone(base, 0.58 + 0.20 * wt + 0.22 * voice * ws, crimson_blue_bias=0.26, alpha=bezel_alpha, muted=muted),
+            1.4 + 0.35 * voice * ws,
+            Qt.PenStyle.SolidLine,
+            Qt.PenCapStyle.FlatCap,
+        )
+        p.setPen(bezel_pen)
+        tick_len = max(3.0, R * (0.022 + 0.008 * wt))
+        for start_deg, span_deg in self._OUTER_BEZEL_ARCS:
+            ang0 = (start_deg + self._outer_phase) % 360.0
+            p.drawArc(outer_rect, int(round(ang0 * 16.0)), int(round(span_deg * 16.0)))
+            # Pequenos ticks radiais para evidenciar o giro do anel externo
+            for edge_deg in (ang0, (ang0 + span_deg) % 360.0):
+                rad = math.radians(edge_deg)
+                ca, sa = math.cos(rad), -math.sin(rad)
+                p.drawLine(
+                    QLineF(
+                        cx + ca * (r_outer - tick_len),
+                        cy + sa * (r_outer - tick_len),
+                        cx + ca * (r_outer + tick_len * 0.45),
+                        cy + sa * (r_outer + tick_len * 0.45),
+                    )
+                )
 
-        for avg_z, f_idx, i0, i1, i2 in face_depths:
-            n = n_rot[f_idx]
+        # 2 micro-satélites orbitando continuamente sobre o anel externo
+        sat_r = max(1.6, R * (0.009 + 0.004 * wt))
+        sat_col = _tone(base, 0.94, white_lift=0.18, alpha=175 + 60 * wt + 45 * voice * ws, muted=muted)
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QBrush(sat_col))
+        for offset in (63.0, 243.0):
+            s_rad = math.radians((offset + self._outer_phase) % 360.0)
+            sx_p = cx + math.cos(s_rad) * r_outer
+            sy_p = cy - math.sin(s_rad) * r_outer
+            p.drawEllipse(QRectF(sx_p - sat_r, sy_p - sat_r, sat_r * 2.0, sat_r * 2.0))
+        p.setBrush(Qt.BrushStyle.NoBrush)
 
-            diffuse = max(0.08, float(np.dot(n, self._light_dir)))
-            is_front = n[2] > -0.05
+        # ── C. Anel Interno (r = 0.720 * R): Giroscópio Contra-Rotativo + Espectro
+        r_inner = R * (0.720 + 0.018 * voice * ws - 0.008 * mic * wl)
+        inner_rect = QRectF(cx - r_inner, cy - r_inner, r_inner * 2.0, r_inner * 2.0)
 
-            poly = QPolygonF([
-                QPointF(px[i0], py[i0]),
-                QPointF(px[i1], py[i1]),
-                QPointF(px[i2], py[i2]),
-            ])
+        p.setPen(QPen(_tone(base, 0.26, crimson_blue_bias=0.26, alpha=58 + 18 * energy, muted=muted), 0.9))
+        p.drawEllipse(inner_rect)
 
-            if is_core:
-                # Compact, high-energy internal facets: deep scarlet to ruby red.
-                shade = max(0.0, float(np.dot(n, self._light_dir)))
-                face_alpha = min(235, int(95 + 95 * shade + 35 * amp))
-                pen_alpha = min(255, int(125 + 95 * shade + 30 * amp))
-                core_col = QColor(accent)
-                core_col.setGreen(min(20, core_col.green()))
-                core_col.setBlue(min(48, core_col.blue()))
-                p.setPen(QPen(_c(core_col, pen_alpha), 1.0))
-                p.setBrush(QBrush(_c(core_col, face_alpha)))
-                p.drawPolygon(poly)
-            else:
-                # D19K: continuous orientation fade. Previously the hard
-                # n.z > -0.05 branch switched a facet from ~20 alpha to
-                # ~150-235 alpha in a single frame as it rotated.
-                # Blend opacity, color and edge glow through a broad angular
-                # interval instead of switching between front/back materials.
-                facing = float(n[2])
-                u = max(0.0, min(1.0, (facing + 0.42) / 0.72))
-                visibility = u * u * (3.0 - 2.0 * u)  # smoothstep
-                lit = max(0.0, float(np.dot(n, self._light_dir)))
-                facet_variation = (0.65, 1.0, 0.48, 0.88, 0.60, 0.95, 0.52, 0.83,
-                                   0.66, 0.98, 0.54, 0.76, 0.70, 0.93, 0.57, 0.86)[f_idx]
-                brightness = min(1.0, (0.24 + 0.51 * lit + 0.25 * max(0.0, facing)) * facet_variation)
-                red = min(255, int(125 + 130 * brightness + 20 * amp))
-                green = min(36, int(5 + 23 * brightness))
-                blue = min(66, int(15 + 39 * brightness))
+        gyro_alpha = 112 + 65 * wt + 60 * voice * ws + 28 * wl
+        gyro_pen = QPen(
+            _tone(base, 0.56 + 0.24 * wt + 0.22 * voice * ws, crimson_blue_bias=0.24, alpha=gyro_alpha, muted=muted),
+            1.2 + 0.3 * wt,
+            Qt.PenStyle.SolidLine,
+            Qt.PenCapStyle.RoundCap,
+        )
+        p.setPen(gyro_pen)
+        for start_deg, span_deg in self._INNER_GYRO_ARCS:
+            ang = (start_deg + self._inner_phase) % 360.0
+            p.drawArc(inner_rect, int(round(ang * 16.0)), int(round(span_deg * 16.0)))
 
-                back_alpha = 12 + 17 * energy
-                front_alpha = min(245, 115 + 100 * brightness + 20 * energy)
-                face_alpha = int(back_alpha + (front_alpha - back_alpha) * visibility)
-                back_pen_alpha = 28 + 18 * energy
-                front_pen_alpha = min(250, 115 + 100 * brightness + 20 * amp)
-                pen_alpha = int(back_pen_alpha + (front_pen_alpha - back_pen_alpha) * visibility)
-                pen_w = 0.70 + (0.35 + 0.35 * min(1.0, lit / 0.55)) * visibility
+        # Assinatura SPEAKING no anel interno: ressonador harmônico radial (24 barras simétricas)
+        if ws > 0.03 and not muted:
+            bars = 24
+            bar_base_alpha = ws * (115.0 + 135.0 * voice)
+            for i in range(bars):
+                theta = (math.tau * i / bars) + math.radians(self._inner_phase * 0.25)
+                # Modulação harmônica viva sem precisar de FFT separado
+                wave = (
+                    0.50
+                    + 0.30 * math.sin(theta * 3.0 + self._t * 11.0)
+                    + 0.20 * math.cos(theta * 5.0 - self._t * 15.0)
+                )
+                bar_len = R * (0.012 + 0.058 * voice * wave) * ws
+                ca, sa = math.cos(theta), math.sin(theta)
+                p.setPen(
+                    QPen(
+                        _tone(base, 0.96, white_lift=0.18 * voice * wave, alpha=bar_base_alpha * (0.55 + 0.45 * wave), muted=muted),
+                        1.35,
+                        Qt.PenStyle.SolidLine,
+                        Qt.PenCapStyle.RoundCap,
+                    )
+                )
+                p.drawLine(
+                    QLineF(
+                        cx + ca * (r_inner - bar_len * 0.35),
+                        cy + sa * (r_inner - bar_len * 0.35),
+                        cx + ca * (r_inner + bar_len),
+                        cy + sa * (r_inner + bar_len),
+                    )
+                )
 
-                # Avoid color snaps as the facet rotates out of view: hue
-                # is always ruby, while opacity and specularity fade smoothly.
-                face_grad = QLinearGradient(px[i0], py[i0],
-                                            (px[i1] + px[i2]) * 0.5,
-                                            (py[i1] + py[i2]) * 0.5)
-                face_grad.setColorAt(0.0, _c(QColor(min(255, red + 32),
-                                                     min(45, green + 8),
-                                                     min(83, blue + 15)),
-                                               min(255, face_alpha + int(20 * visibility))))
-                face_grad.setColorAt(0.48, _c(QColor(red, green, blue), face_alpha))
-                face_grad.setColorAt(1.0, _c(QColor(int(red * 0.38),
-                                                     int(green * 0.44),
-                                                     int(blue * 0.5)), face_alpha))
-                pen_col = _c(QColor(min(255, red + 35), min(42, green + 9),
-                                    min(80, blue + 15)), pen_alpha)
-                p.setPen(QPen(pen_col, pen_w))
-                p.setBrush(QBrush(face_grad))
-                p.drawPolygon(poly)
-                # Soft edge bloom with smoothly interpolated visibility.
-                # Keep it restrained: faces stay sharp, only select lit
-                # ridges catch the holographic light.
-                if f_idx % 3 == 0:
-                    glow_alpha = int((11 + 22 * lit + 12 * amp) * visibility)
-                    if glow_alpha > 1:
-                        p.setPen(QPen(QColor(255, 20, 55, glow_alpha), 5.0,
-                                      Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
-                        p.drawLine(QPointF(px[i0], py[i0]), QPointF(px[i1], py[i1]))
+        # ── D. Anel Médio (r = 0.865 * R): Telemetria Contra-Rotativa + Beacons ──
+        r_mid = R * (0.865 + 0.022 * voice * ws)
+        mid_rect = QRectF(cx - r_mid, cy - r_mid, r_mid * 2.0, r_mid * 2.0)
 
-                # The specular ridge fades with orientation as well, instead
-                # of appearing abruptly at lit > 0.35 / front == True.
-                if f_idx % 3 == 0:
-                    ridge_strength = max(0.0, min(1.0, (lit - 0.15) / 0.45))
-                    ridge_strength *= ridge_strength * (3.0 - 2.0 * ridge_strength)
-                    ridge_alpha = int((62 + 90 * lit + 55 * amp) * visibility * ridge_strength)
-                    if ridge_alpha > 1:
-                        p.setPen(QPen(_c(QColor(255, 78, 112), ridge_alpha), 0.8))
-                        p.drawLine(QPointF(px[i0], py[i0]), QPointF(px[i1], py[i1]))
+        arc_alpha = 158 + 52 * wt + 68 * voice * ws + 26 * wl
+        arc_w = 1.50 + 0.55 * voice * ws + 0.25 * wt
+        arc_pen = QPen(
+            _tone(
+                base,
+                0.72 + 0.20 * voice * ws + 0.16 * wt,
+                crimson_blue_bias=0.21,
+                white_lift=0.05 + 0.14 * voice * ws,
+                alpha=min(255.0, arc_alpha),
+                muted=muted,
+            ),
+            arc_w,
+            Qt.PenStyle.SolidLine,
+            Qt.PenCapStyle.RoundCap,
+        )
+        p.setPen(arc_pen)
+        # Em SPEAKING os arcos se dilatam com a voz; em THINKING ficam mais curtos e afiados como scanner
+        span_scale = 1.0 + 0.18 * voice * ws - 0.14 * wt
+        for start_deg, span_deg, layer in self._TELEMETRY_ARCS:
+            phase = self._arc_phase_a if layer > 0 else self._arc_phase_b
+            ang = (start_deg + phase) % 360.0
+            adj_span = max(5.0, span_deg * span_scale)
+            p.drawArc(mid_rect, int(round(ang * 16.0)), int(round(adj_span * 16.0)))
 
-        if not is_core:
-            # Vertex glints also fade with depth instead of switching on/off.
-            for vi in (0, 9):
-                depth = float(v_rot[vi, 2]) / max(1.0, r * 0.7)
-                u = max(0.0, min(1.0, (depth + 0.24) / 0.48))
-                fade = u * u * (3.0 - 2.0 * u)
-                alpha = int((150 + 105 * amp) * fade)
-                if alpha > 1:
-                    p.setPen(QPen(_c(accent, alpha), 2.2))
-                    p.drawPoint(QPointF(px[vi], py[vi]))
+        # Assinatura LISTENING: colchetes acústicos equatoriais enquadrando a recepção lateral
+        if wl > 0.03 and not muted:
+            br_r = r_mid + R * (0.042 - 0.010 * mic)
+            br_rect = QRectF(cx - br_r, cy - br_r, br_r * 2.0, br_r * 2.0)
+            br_span = 22.0 + 12.0 * mic + 3.0 * math.sin(self._breathe * 1.3)
+            br_alpha = wl * (135.0 + 105.0 * mic)
+            p.setPen(
+                QPen(
+                    _tone(base, 0.94, white_lift=0.16 + 0.14 * mic, alpha=br_alpha, muted=muted),
+                    1.45 + 0.4 * mic,
+                    Qt.PenStyle.SolidLine,
+                    Qt.PenCapStyle.RoundCap,
+                )
+            )
+            for center_deg in (0.0, 180.0):
+                p.drawArc(
+                    br_rect,
+                    int(round((center_deg - br_span * 0.5) * 16.0)),
+                    int(round(br_span * 16.0)),
+                )
 
+        # 2 Beacons Rubi Principais (flutuação equatorial em IDLE/LISTENING/SPEAKING; órbita 360° com rastro em THINKING)
+        equator_bob = math.sin(self._t * 1.7) * 5.5 * (1.0 - wt)
+        base_angles = (
+            (0.0 + equator_bob + self._beacon_orbit) % 360.0,
+            (180.0 - equator_bob + self._beacon_orbit) % 360.0,
+        )
+
+        # Rastros de cometa exclusivos do scanner THINKING
+        if wt > 0.04 and not muted:
+            trail_span = 34.0 * wt
+            p.setPen(
+                QPen(
+                    _tone(base, 0.96, white_lift=0.18, alpha=155.0 * wt, muted=muted),
+                    2.1,
+                    Qt.PenStyle.SolidLine,
+                    Qt.PenCapStyle.RoundCap,
+                )
+            )
+            for b_deg in base_angles:
+                p.drawArc(
+                    mid_rect,
+                    int(round((b_deg - trail_span) * 16.0)),
+                    int(round(trail_span * 16.0)),
+                )
+
+        dot_r = max(
+            2.4,
+            R * (0.016 + 0.008 * voice * ws + 0.005 * mic * wl + 0.003 * wt),
+        )
+        halo_dot_r = dot_r * (2.3 + 1.1 * voice * ws + 0.7 * mic * wl + 0.6 * wt)
+        dot_col = _tone(
+            base,
+            1.00,
+            white_lift=0.20 + 0.24 * voice * ws + 0.14 * mic * wl,
+            alpha=235 + 20 * max(voice, mic),
+            muted=muted,
+        )
+
+        p.setPen(Qt.PenStyle.NoPen)
+        for b_deg in base_angles:
+            rad = math.radians(b_deg)
+            dx = cx + math.cos(rad) * r_mid
+            dy = cy - math.sin(rad) * r_mid
+
+            d_glow = QRadialGradient(dx, dy, halo_dot_r)
+            d_glow.setColorAt(0.0, _tone(base, 1.00, white_lift=0.25, alpha=125 + 95 * max(voice * ws, mic * wl, wt), muted=muted))
+            d_glow.setColorAt(1.0, _TRANSPARENT_BLACK)
+            p.setBrush(QBrush(d_glow))
+            p.drawEllipse(QRectF(dx - halo_dot_r, dy - halo_dot_r, halo_dot_r * 2.0, halo_dot_r * 2.0))
+
+            p.setBrush(QBrush(dot_col))
+            p.drawEllipse(QRectF(dx - dot_r, dy - dot_r, dot_r * 2.0, dot_r * 2.0))

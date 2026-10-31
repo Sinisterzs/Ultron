@@ -4,6 +4,23 @@ Referência inicial para entender e alterar este repositório. Conferido por lei
 do código em **29/10/2026**. Este documento não comprova funcionamento de serviços
 externos nem substitui a leitura dos arquivos envolvidos na alteração.
 
+## Política operacional do Codex
+
+Estas regras complementam os contratos técnicos abaixo; não substituem segurança, autorização humana nem validação.
+
+- Execute tarefas pequenas diretamente. Para mudanças complexas, planeje em poucos passos e mantenha o plano atualizado somente quando necessário.
+- Antes de editar, consulte `git status --short` e o diff pertinente. Preserve trabalho local, inclusive arquivos não rastreados.
+- Limite a leitura a arquivos afetados, chamadores, contratos e testes relevantes. Não faça varreduras repetitivas sem evidência de necessidade.
+- Faça a menor alteração coerente que resolva a causa; não expanda escopo ou refatore módulos não relacionados.
+- Tenha autonomia para mudanças reversíveis dentro do pedido. Peça autorização antes de apagar dados, substituir mudanças do usuário, publicar, fazer push, criar release/tag, executar operações externas sensíveis ou mudar escopo significativamente.
+- Execute testes direcionados proporcionais ao risco e informe o que foi ou não validado. Não execute aplicações, instaladores, downloads ou integração real como simples teste.
+- Em tarefas interrompidas, identifique o que já foi concluído por meio do estado do repositório e dos resultados disponíveis; não recomece nem repita testes sem necessidade.
+- Conclua ao atingir o objetivo e validar o escopo; não continue refinando indefinidamente.
+- Resumo final conciso: alterações, arquivos, testes/resultados, riscos e pendências. Não afirme sucesso sem evidências.
+- Economia de tokens é secundária à correção, segurança e clareza. Evite relatar raciocínio extenso ou executar ferramentas redundantes, mas não omita verificações necessárias.
+
+**Escopo de instruções:** arquivos `AGENTS.md` em `core/`, `installer/` e `tests/` detalham regras específicas. Ao trabalhar nessas áreas, leia o arquivo correspondente se ainda não estiver no contexto da sessão; regras específicas complementam esta política sem revogar controles de segurança.
+
 ## 1. O que o aplicativo faz
 
 É um assistente pessoal desktop em Python, com interface holográfica PyQt6.
@@ -69,6 +86,48 @@ Não usar inicialização real como se fosse um teste unitário sem efeitos.
 | `ultron_entry.py` | Entrada empacotável: sem argumentos abre launcher; `--app` inicia o principal; `--preview-setup` abre somente a prévia do wizard. |
 | `ui_setup.py` | Wizard de primeira configuração; emite dados apenas ao concluir, sem iniciar voz por si só. |
 | `core/app_paths.py`, `core/config_store.py` | Recursos/dados separados e armazenamento atômico de configuração com credenciais protegidas. |
+| `core/ip_geolocation.py` | Localização aproximada por IP, lazy e em cache de memória, usada apenas como pista regional de pesquisa. |
+| `core/location_preferences.py`, `core/location_settings.py` | Preferência regional confirmada, moeda derivada do país por Qt/CLDR e cartão de localização em Ajustes. |
+| `core/search_sources.py` | Perfis de domínio por assunto/país para buscas de ofertas e imóveis, sem inferir reputação ou confirmação de preço. |
+
+Pesquisas `search`/`price` classificadas como hardware/imóveis usam perfis BR:
+KaBuM/Terabyte/Amazon e QuintoAndar/ZAP/VivaReal, respectivamente. DDG recebe
+filtro de domínios e os resultados são novamente filtrados por hostname exato
+ou subdomínio; perfil vazio de resultados não expande para agregadores/lojas
+desconhecidas. `expand_sources=true` exige pedido explícito do usuário.
+`site` explícito prevalece; `country` explícito ou país nomeado na consulta
+prevalece à preferência manual/IP. País/assunto sem perfil recebe busca
+regional identificada como sem perfil conhecido; notícias não usam o perfil.
+Não prometer portais populares de cada cidade nem confundir preferência de
+domínio com oferta/pagamento verificado. Módulo incluído por `core/*.py`.
+
+`get_search_location()` prioriza a preferência manual em `search_location`,
+salva com `core.config_store.update_config` preservando os outros campos e a
+proteção de credenciais. Sem override, usa o IP aproximado. Cidade, estado
+opcional e país são confirmados pelo usuário; moeda não é editável, deriva
+da base CLDR do Qt. Não deduzir cidade física por idioma/fuso. Ajustes consulta
+localização e salva/reset em worker ao exibir/interagir com o cartão; sem
+rede no import/boot ou thread Qt. Voltar ao automático limpa o override.
+O contexto regional continua subordinado à região explícita na pesquisa.
+Os módulos ficam em `core/*.py`, já cobertos pela allowlist do payload.
+| `core/offer_verifier.py` | Verificação HTTP limitada de ofertas específicas por HTML/JSON-LD, sem navegador, credenciais ou armazenamento de páginas. |
+
+O verificador limita a resposta recebida a 750 KB e a descompressão gzip a
+3 MB, respeita charset declarado e recusa codificações não suportadas. A
+extração HTML reconhece campos da oferta principal Amazon BR e o vendedor
+explicitamente declarado na KaBuM, complementando JSON-LD. Condição de
+pagamento só acompanha o preço quando está no mesmo pequeno bloco e o valor
+coincide; na ausência dessa evidência retorna `payment_condition=not confirmed`.
+Somas de parcelas usam Decimal em `calculated_total`, explicitamente calculado;
+`declared_total` é reservado ao total rotulado pela loja. KaBuM pode fornecer
+`embedded_regular_price`, com identidade/vendedor/preço Pix/parcelas conferidos
+no `__NEXT_DATA__`; divergências de arredondamento são preservadas.
+Timeout de 5 s é por operação de socket,
+não um prazo global de toda pesquisa; estoque/checkout não são comprovados.
+Os adaptadores `_amazon_offer`/`_kabum_offer` compartilham a validação `_offer`.
+Amazon associa os blocos irmãos da oferta principal ao ASIN do widget de
+parcelamento; valores de parcela e total declarado seguem em `installments`,
+separados de `cash_price`/`cash_methods`, sem calcular total por multiplicação.
 | `installer/` | Spec PyInstaller, script de build, configuração Inno Setup e documentação do rascunho. |
 | `bootstrap_entry.py`, `installer/Bootstrap.spec` | Setup online único: interface própria e runtime privado com bibliotecas baixadas na preparação final. |
 | `core/install_manager.py`, `core/runtime_lock.py` | Download verificado, instalação no runtime privado e bloqueio para não sobrescrever a aplicação em execução. |
@@ -342,3 +401,93 @@ parciais e o schema antigo continua suportado. Não remover arquivos pessoais da
 raiz nem modificar a instalação atual durante testes. Acumular melhorias locais;
 somente gerar Setup/publicar quando o usuário autorizar explicitamente. A release
 0.1.3 foi autorizada expressamente por corrigir a falha do atualizador.
+
+### Cache dos painéis em perspectiva (melhoria local)
+
+`PerspectiveSideView` mantém a imagem de saída supersampled e usa
+`QGraphicsProxyWidget.ItemCoordinateCache` para reutilizar pixels dos widgets.
+O DPR da imagem é 1,5: somente escalar o painter deixaria o cache nativo em 1×.
+O cache do item respeita regiões nativas alteradas, mesmo quando a perspectiva
+faz o Qt anunciar dano no proxy inteiro; a composição transformada ainda pode
+cobrir todo o painel. Não afirmar atualização de apenas uma linha nem ganho de
+FPS global sem medir. O sinal `scene.changed` encaminha dano ao viewport porque
+o paintEvent customizado usa `scene.render`. A imagem de saída é recriada ao
+mudar geometria/DPR/transformação e liberada no encerramento. A invalidação dos
+pixels de widgets, incluindo tema, rolagem e seleção, continua a cargo do Qt.
+`tests/test_perspective_rendering.py` exercita os widgets reais por AST/offscreen,
+sem importar main/ui ou iniciar serviços, e compara a saída parcial com uma
+composição completa usando o mesmo cache nativo. Cache de pixels pode alterar
+antialiasing em relação ao render direto; revisar legibilidade também na UI real.
+Essa melhoria não altera a digitação nem adiciona timers ou preparação no Setup.
+
+### Repintura do HUD e diagnóstico de cadência (melhoria local)
+
+`HudCanvas.paintEvent` sempre restaura os pixels solicitados pelo Qt. Somente
+um quadro autorizado pela cadência, ou cache inválido, chama `_paint_frame`;
+hover/expose usa a última QImage transparente, sem avançar animação ou contar
+um novo quadro. O blit exclui a região dos filhos para preservar o botão FPS.
+O cache considera tamanho, DPR, modelo e paleta; o timer compartilhado continua
+único. A imagem usa pixels físicos para evitar perda de resolução em telas HiDPI.
+
+`core/hud_diagnostics.py` mantém amostras limitadas e separa os alvos 47/60.
+O relatório `data_root()/logs/hud-frame-diagnostics.csv` contém FPS de quadros
+gerados, p50/p95/p99 dos intervalos, atrasos e slots perdidos, custo de render,
+blit e pintura total, restaurações, memória do cache e RSS do processo. Não mede
+apresentação física na tela/GPU. Usa o timer de relatório existente (5 s) e
+aboutToQuit; não grava arquivos nem consulta RSS em paintEvent. Não prometer
+cadência estável no app completo com base apenas em uma medição isolada.
+`tests/test_hud_frame_cache.py` carrega a classe por AST e usa cristal/Qt reais,
+sem main/ui, configuração pessoal ou áudio. `tools/benchmark_hud_rendering.py`
+compara o caminho direto anterior com o cache em fixture offscreen e grava em
+`tools/reports/hud-cache/`; aceita `--seconds` entre 1 e 30 por cenário.
+
+### Ícones do aplicativo e do Setup (registro histórico; rever após mudanças)
+
+Na inspeção anterior, o desenho indicado pelo usuário estava em `config/jarvis.png`; `jarvis.ico` era uma
+conversão ICO real com tamanhos 16–256, preservando o PNG original. Não apenas
+renomear PNG para ICO. O registro anterior indicava que `core/app_icon.py` aplicava o mesmo recurso ao app, launcher,
+Setup e helper; no bootstrap procura também `payload/app/config/jarvis.ico`.
+Na inspeção anterior, os specs e o Inno usavam esse ICO; o atalho criado pelo Setup online referencia
+o ícone instalado em `app/config`. A separação posterior dos ícones do Setup e do aplicativo estava em andamento; conferir o diff atual antes de editar. Esses recursos só passam a um novo executável
+ou instalador após um build expressamente autorizado. Não gerar Setup/publicar
+como efeito colateral da mudança de asset.
+
+### Conversa holográfica compacta (melhoria local)
+
+`ui_chat.py` contém `HoloChat`/`ChatBubble`: o chat aprovado fica junto ao cristal
+em telas amplas e usa o espaço inferior direito em janelas estreitas, sem cobrir
+o cristal ou o rótulo de estado. É filho da página inicial, ancorado ao stack do
+HUD, sem entrar no cache do HUD nem nos proxies em perspectiva. Não adicionar
+timer para posicionamento/digitação. Mudanças de tamanho usam eventos do Qt;
+ao mostrar câmera/vídeo, o chat é ocultado e seu histórico continua recebendo
+mensagens. O painel tem até 280×240 pixels lógicos; recolher mantém o cabeçalho.
+
+O Activity Log visível saiu da coluna direita, fazendo upload/entrada/controles
+subirem ao topo. O `LogWidget` permanece oculto como fonte de digitação e da
+página Atividade. `entry_started(text, category)` e
+`entry_progress(visible_text, category, finished)` alimentam os balões usando
+a mesma cadência de 6 ms/caractere em lotes por quadro. `entry_completed` e seu
+HTML continuam emitindo uma vez por entrada. Somente Você/Ultron aparecem no
+chat; SYS/Plugin/erros permanecem na Atividade. Não interpretar transcrição como
+HTML nem criar uma segunda rota que duplique mensagens.
+
+Respostas longas mostram até quatro linhas, com Ler mais/Ler menos dentro da
+altura fixa e área rolável do painel. A prévia já recolhida é reutilizada durante
+a digitação. O histórico visível é limitado a 100 mensagens; Atividade mantém
+seu limite próprio. A rolagem segue o fim até o usuário subir/expandir um balão;
+novas mensagens oferecem um botão para retomar. Testes funcionais ficam em
+`tests/test_holo_chat.py`; `tools/render_chat_preview.py` monta componentes reais
+por AST/Qt offscreen em duas larguras, sem main/ui, voz ou configuração pessoal.
+O novo módulo integra a allowlist do payload; não gerar Setup como validação.
+
+O chat se oculta após 4 segundos sem atividade. `HoloChat.bind_hud_clock` usa
+o mesmo `HudCanvas.pacedFrame`, sem criar QTimer. Digitação ativa, fala do
+assistente e cursor sobre o painel suspendem o prazo; eventos de interação dos
+filhos (balões, scrollbar, Ler mais, minimizar) o renovam. Novas mensagens de
+conversa reexibem o painel sem limpar o histórico; mensagens SYS não o reabrem.
+Câmera/vídeo continuam respeitando a ocultação do chat. O estado LISTENING por
+si só não conta como fala: ele também representa silêncio com o microfone ativo.
+
+### Release 0.1.6 — CORE STATUS, painel de notícias retrátil e dock vetorial plano
+
+Publicação autorizada pelo usuário. `ui_core_status.py` (`CoreStatusPanel`) fica no topo da coluna central da home e usa `HudCanvas.pacedFrame`, sem `QTimer` próprio. O seletor `47/60 FPS` foi movido para a página `MOTOR` e o texto `HUD xx.x/47 FPS` não é mais pintado no `HudCanvas`. `ui_news.py` (`NewsBriefingPanel`) apresenta o briefing e buscas `mode="news"` recolhido com 2 itens ou expandido com lista rolável. `ui_dock.py` (`FlatDock`) substitui a projeção curva por um dock vetorial plano em `BottomNavBar`, alinhado ao centro horizontal de `_hud_cam_stack` em modo janela e maximizado e preservando o cursor de clique sobre os ícones. `ui_core_status.py`, `ui_news.py` e `ui_dock.py` integram a allowlist de `installer/prepare_payload.py`.

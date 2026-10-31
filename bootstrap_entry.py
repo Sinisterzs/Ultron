@@ -69,6 +69,8 @@ def main():
 
     app = QApplication(sys.argv)
     app.setStyle("Fusion")
+    from core.app_icon import apply_app_icon
+    apply_app_icon(app)
     installed = {"root": None, "saved": False}
 
     def prepare(emit, cancel):
@@ -83,8 +85,9 @@ def main():
         programs.mkdir(parents=True, exist_ok=True)
         escaped = str(root / "ULTRON.exe").replace("'", "''")
         shortcut = str(programs / "ULTRON.lnk").replace("'", "''")
+        icon = str(root / "app/config/jarvis.ico").replace("'", "''")
         command = ("$s=(New-Object -ComObject WScript.Shell).CreateShortcut('" + shortcut + "');"
-                   "$s.TargetPath='" + escaped + "';$s.Save()")
+                   "$s.TargetPath='" + escaped + "';$s.IconLocation='" + icon + ",0';$s.Save()")
         subprocess.run(["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", command],
                        check=True, timeout=15, creationflags=subprocess.CREATE_NO_WINDOW,
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)

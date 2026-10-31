@@ -61,6 +61,8 @@ def build_update_window():
 def run_update(path, launch):
     app = QApplication([])
     app.setStyle("Fusion")
+    from core.app_icon import apply_app_icon
+    apply_app_icon(app)
     window, status, bar, cancel, stop = build_update_window()
     worker = ApplyWorker(path, stop)
     # Keep worker/thread references alive for queued Qt signals.
