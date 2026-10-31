@@ -81,10 +81,24 @@ def install_and_download(logger: Callable[[str], None] = print,
         if not is_installed():
             logger("Wake word: installing openwakeword (one-time)…")
             _tell("Wake word: installing openwakeword (one-time)…")
-            r = subprocess.run(
-                [sys.executable, "-m", "pip", "install", "openwakeword"],
-                capture_output=True, text=True, encoding="utf-8", errors="replace",
-            )
+            exe = sys.executable
+            if exe.lower().endswith("pythonw.exe"):
+                cli_exe = Path(exe).with_name("python.exe")
+                if cli_exe.is_file():
+                    exe = str(cli_exe)
+            cmd = [
+                exe, "-m", "pip", "--isolated", "install",
+                "--disable-pip-version-check", "--no-warn-script-location",
+                "--no-build-isolation", "openwakeword",
+            ]
+            kwargs = {
+                "capture_output": True, "text": True, "encoding": "utf-8", "errors": "replace",
+            }
+            if sys.platform == "win32":
+                kwargs["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
+            r = subprocess.run(cmd, **kwargs)
+            if r.returncode != 0:
+                r = subprocess.run([exe, "-m", "pip", "install", "openwakeword"], **kwargs)
             if r.returncode != 0:
                 tail = (r.stderr or r.stdout or "").strip().splitlines()[-1:] or [""]
                 return False, f"pip install failed: {tail[0][:160]}"

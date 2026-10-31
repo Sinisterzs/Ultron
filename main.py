@@ -698,7 +698,14 @@ class JarvisLive:
         # ── Wake word ────────────────────────────────────────────────────────
         # _awake gates the mic (see _listen_audio) and the background speakers.
         # It is True whenever wake word is OFF, so default behaviour is unchanged.
-        self._wake_enabled     = get_wake_word_enabled()
+        saved_wake = get_wake_word_enabled()
+        wake_mode = get_wake_mode()
+        detector_available = (wake_mode in ("voice", "both") and wake_is_ready()) or (wake_mode in ("clap", "both"))
+        if saved_wake and not detector_available:
+            self._wake_enabled = False
+            save_wake_word_enabled(False)
+        else:
+            self._wake_enabled = saved_wake
         self._awake            = not self._wake_enabled
         self._wake_detector: WakeWordDetector | ClapDetector | None = None
         self._wake_sleep_timeout = WAKE_SLEEP_TIMEOUT
@@ -743,9 +750,9 @@ class JarvisLive:
     def _ensure_wake_detector(self) -> bool:
         """Create and start detectors according to current wake mode. Stops any previously running detectors."""
         mode = get_wake_mode()
-        # Stop any existing detectors first
         self._stop_wake_detectors()
-        created = False
+        voice_ok = False
+        clap_ok = False
         if mode in ("voice", "both"):
             self._wake_detector = WakeWordDetector(
                 on_detect=self._on_wake_detected,
@@ -753,8 +760,9 @@ class JarvisLive:
                 notify=lambda m: self.ui.write_log(f"SYS: {m}"),
             )
             if not self._wake_detector.ready:
-                self._wake_detector.start()
-            created = True
+                voice_ok = self._wake_detector.start()
+            else:
+                voice_ok = True
         if mode in ("clap", "both"):
             self._clap_detector = ClapDetector(
                 on_detect=self._on_wake_detected,
@@ -762,66 +770,14 @@ class JarvisLive:
                 notify=lambda m: self.ui.write_log(f"SYS: {m}"),
                 debug=get_wake_debug(),
             )
-            self._clap_detector.start()
-            created = True
-        return created
-        """Load the appropriate detector according to wake mode. Idempotent."""
-        mode = get_wake_mode()
+            clap_ok = self._clap_detector.start()
         if mode == "voice":
-            # Ensure voice detector exists
-            if self._wake_detector is None or not isinstance(self._wake_detector, WakeWordDetector):
-                self._wake_detector = WakeWordDetector(
-                    on_detect=self._on_wake_detected,
-                    logger=lambda m: print(f"[Wake] {m}"),
-                    notify=lambda m: self.ui.write_log(f"SYS: {m}"),
-                )
-            if not self._wake_detector.ready:
-                return self._wake_detector.start()
-            return True
-        elif mode == "clap":
-            if self._wake_detector is None or not isinstance(self._wake_detector, ClapDetector):
-                self._wake_detector = ClapDetector(
-                    on_detect=self._on_wake_detected,
-                    logger=lambda m: print(f"[Clap] {m}"),
-                    notify=lambda m: self.ui.write_log(f"SYS: {m}"),
-                    debug=get_wake_debug(),
-                )
-            if not self._wake_detector.ready:
-                return self._wake_detector.start()
-            return True
-        elif mode == "both":
-            # Ensure both detectors are created; keep a tuple? Simplify: use ClapDetector as primary, but also run voice.
-            # We'll keep a single detector that handles both: voice detector for voice, clap for clap.
-            # Here we just ensure voice detector is running; clap detection will be handled separately.
-            if self._wake_detector is None or not isinstance(self._wake_detector, WakeWordDetector):
-                self._wake_detector = WakeWordDetector(
-                    on_detect=self._on_wake_detected,
-                    logger=lambda m: print(f"[Wake] {m}"),
-                    notify=lambda m: self.ui.write_log(f"SYS: {m}"),
-                )
-            if not self._wake_detector.ready:
-                self._wake_detector.start()
-            # ensure clap detector as separate attribute
-            if getattr(self, "_clap_detector", None) is None:
-                self._clap_detector = ClapDetector(
-                    on_detect=self._on_wake_detected,
-                    logger=lambda m: print(f"[Clap] {m}"),
-                    notify=lambda m: self.ui.write_log(f"SYS: {m}"),
-                    debug=get_wake_debug(),
-                )
-                self._clap_detector.start()
-            return True
-        else:
-            # Fallback to voice detector
-            if self._wake_detector is None or not isinstance(self._wake_detector, WakeWordDetector):
-                self._wake_detector = WakeWordDetector(
-                    on_detect=self._on_wake_detected,
-                    logger=lambda m: print(f"[Wake] {m}"),
-                    notify=lambda m: self.ui.write_log(f"SYS: {m}"),
-                )
-            if not self._wake_detector.ready:
-                return self._wake_detector.start()
-            return True
+            return voice_ok
+        if mode == "clap":
+            return clap_ok
+        if mode == "both":
+            return voice_ok or clap_ok
+        return voice_ok
 
 
     def _on_wake_detected(self) -> None:
@@ -840,6 +796,20 @@ class JarvisLive:
     def sleep(self, reason: str = "timeout") -> None:
         if not self._awake:
             return
+        # Fail-safe: never sleep if no detector is ready to wake the assistant
+        has_detector = False
+        if self._wake_detector and self._wake_detector.ready:
+            has_detector = True
+        if self._clap_detector and self._clap_detector.ready:
+            has_detector = True
+        if not has_detector:
+            has_detector = self._ensure_wake_detector()
+        if not has_detector:
+            self._wake_enabled = False
+            save_wake_word_enabled(False)
+            self.ui.write_log("SYS: Não foi possível repousar — nenhum detector de despertar está pronto.")
+            return
+
         self._awake = False
         self.set_speaking(False)
         self.ui.set_state("SLEEPING")
@@ -887,10 +857,9 @@ class JarvisLive:
 
     def _ui_wake_manual(self) -> None:
         """Manual sleep/wake button in the UI."""
-        if not self._wake_enabled:
-            return
         if self._awake:
-            self.sleep(reason="you tapped sleep")
+            if self._wake_enabled:
+                self.sleep(reason="you tapped sleep")
         else:
             self.wake(reason="you tapped wake")
 
@@ -2577,12 +2546,19 @@ class JarvisLive:
                         self.ui.write_log("SYS: Reconnected — conversation restored.")
 
                     # Wake word: if enabled, come up ASLEEP (mic gated, silent)
-                    # until the user says "Hey Jarvis" or taps wake in the UI.
+                    # only if a detector is genuinely ready to wake us.
                     if self._wake_enabled:
-                        self._ensure_wake_detector()
-                        self._awake = False
-                        self.ui.set_state("SLEEPING")
-                        self.ui.write_log("SYS: JARVIS online — sleeping. Say 'Hey Jarvis' to wake me.")
+                        detector_ready = self._ensure_wake_detector()
+                        if detector_ready:
+                            self._awake = False
+                            self.ui.set_state("SLEEPING")
+                            self.ui.write_log("SYS: JARVIS online — sleeping. Say 'Hey Jarvis' to wake me.")
+                        else:
+                            self._wake_enabled = False
+                            save_wake_word_enabled(False)
+                            self._awake = True
+                            self.ui.set_state("LISTENING")
+                            self.ui.write_log("SYS: JARVIS online — wake word precisa de download. Iniciando acordado.")
                     else:
                         self._awake = True
                         self.ui.set_state("LISTENING")

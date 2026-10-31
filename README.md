@@ -33,6 +33,7 @@ The project is under active development. Some features require your own credenti
 
 ## Patch Notes
 
+- **v0.1.8** — Correção do loop de repouso no Wake Word e instalador de modelos no runtime Windows.
 - **v0.1.7** — VOID OS interface (#000000 & expanding side panels), Shield Ruby 2.5D crystal, and reactive Audio HUD.
 - **v0.1.6** — CORE STATUS telemetry bar, collapsible news drawer, and flat vector dock.
 - **v0.1.5** — Regional search and offer verification.

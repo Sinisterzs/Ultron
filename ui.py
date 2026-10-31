@@ -8817,20 +8817,28 @@ class MainWindow(QMainWindow):
                 text-align: left; padding: 0 8px; }}
             QPushButton:hover {{ color: {C.TEXT}; border: 1px solid {C.BORDER_B}; }}"""
         self._wake_btn.setEnabled(True)
+        is_awake = st.get("awake", True)
+        if not is_awake:
+            # If Ultron is sleeping, ALWAYS provide the WAKE NOW button!
+            self._wake_sleep_btn.show()
+            self._wake_sleep_btn.setText("👂  WAKE NOW")
+            self._wake_sleep_btn.setStyleSheet(_off)
+        elif st.get("enabled") and st.get("ready"):
+            self._wake_sleep_btn.show()
+            self._wake_sleep_btn.setText("😴  SLEEP NOW")
+            self._wake_sleep_btn.setStyleSheet(_off)
+        else:
+            self._wake_sleep_btn.hide()
+
         if not st["ready"]:
             self._wake_btn.setText("⬇  WAKE WORD: DOWNLOAD")
             self._wake_btn.setStyleSheet(_off)
-            self._wake_sleep_btn.hide()
         elif st["enabled"]:
             self._wake_btn.setText("🎙  WAKE WORD: ON")
             self._wake_btn.setStyleSheet(_on)
-            self._wake_sleep_btn.show()
-            self._wake_sleep_btn.setText("😴  SLEEP NOW" if st["awake"] else "👂  WAKE NOW")
-            self._wake_sleep_btn.setStyleSheet(_off)
         else:
             self._wake_btn.setText("🎙  WAKE WORD: OFF")
             self._wake_btn.setStyleSheet(_off)
-            self._wake_sleep_btn.hide()
 
     def _refresh_talk_btns(self):
         """Repaint the push-to-talk row from the saved setting."""
