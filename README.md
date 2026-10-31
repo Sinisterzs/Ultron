@@ -2,50 +2,50 @@
 
 <img src="docs/assets/ultron-header.svg" alt="ULTRON — Personal AI System" width="100%">
 
-**Assistente pessoal de IA para Windows.**  
-Voz em tempo real, interface holográfica e automações para o desktop.
+**A personal AI assistant for Windows.**  
+Real-time voice interaction, a holographic interface, and desktop automation.
 
 ![Windows](https://img.shields.io/badge/Windows-111111?style=flat-square&logo=windows11&logoColor=ff304d)
 ![Python](https://img.shields.io/badge/Python-111111?style=flat-square&logo=python&logoColor=ff304d)
 ![PyQt6](https://img.shields.io/badge/PyQt6-111111?style=flat-square&logo=qt&logoColor=ff304d)
 ![Gemini](https://img.shields.io/badge/Gemini_Live-111111?style=flat-square&logo=googlegemini&logoColor=ff304d)
 
-[**Download**](https://github.com/Sinisterzs/Ultron/releases) · [**Documentação**](docs/) · [**Código-fonte**](https://github.com/Sinisterzs/Ultron)
+[**Download**](https://github.com/Sinisterzs/Ultron/releases) · [**Documentation**](docs/) · [**Source Code**](https://github.com/Sinisterzs/Ultron)
 
 </div>
 
 ---
 
-## Sobre
+## Overview
 
-**ULTRON** é um assistente desktop desenvolvido em **Python/PyQt6**, baseado no [MARK LVI, de FatihMakes](https://github.com/FatihMakes/Mark-LVI). Combina conversação por voz, interface personalizável e integrações com ferramentas e serviços do Windows.
+**ULTRON** is a desktop AI assistant built with **Python and PyQt6**, based on [MARK LVI by FatihMakes](https://github.com/FatihMakes/Mark-LVI). It combines voice conversations, a customizable interface, and integrations with Windows tools and services.
 
-O projeto está em desenvolvimento. Algumas funções dependem de credenciais próprias, permissões do sistema e serviços externos.
+The project is under active development. Some features require your own credentials, system permissions, or external services.
 
-## Funcionalidades
+## Features
 
-- **Voz e IA:** conversação com Gemini Live e suporte a push-to-talk.
-- **Interface:** HUD holográfico, temas e animações.
-- **Automações:** integração com sistema, arquivos, navegador e mídia.
-- **Extensões:** plugins e integração opcional com Spotify via PKCE.
-- **Memória:** persistência de informações e dashboard remoto.
-- **Atualizações:** verificação de novas versões e download pelo aplicativo, com confirmação antes de reiniciar.
+- **Voice & AI:** Gemini Live conversations with push-to-talk support.
+- **Interface:** Holographic HUD, themes, and animations.
+- **Automation:** Integrations with the operating system, files, browser, and media.
+- **Extensions:** Plugins and optional Spotify integration using PKCE.
+- **Memory:** Persistent information and a remote dashboard.
+- **Updates:** In-app update checks and downloads, with confirmation before restarting.
 
-## Instalação
+## Installation
 
-Baixe o **`ULTRON-Setup.exe`** na página de [Releases](https://github.com/Sinisterzs/Ultron/releases).
+Download **`ULTRON-Setup.exe`** from the [Releases](https://github.com/Sinisterzs/Ultron/releases) page.
 
-O instalador prepara um runtime Python privado e as dependências necessárias. **É preciso conexão com a internet**, mas não é necessário instalar Python manualmente. O navegador Chromium para automação web é opcional.
+The installer sets up a private Python runtime and the required dependencies. **An internet connection is required**, but you do not need to install Python manually. Downloading Chromium for browser automation is optional.
 
-> **Estado atual:** o instalador ainda não tem assinatura digital. A instalação em um Windows limpo e o fluxo completo de atualização em outro computador ainda precisam de validação.
+> **Current status:** The installer is not digitally signed. Installation on a clean Windows system and the complete update process on a different computer still need validation.
 
-Cada usuário informa sua própria chave Gemini e, opcionalmente, configura o Spotify. As credenciais são protegidas pelo **Windows DPAPI** na conta local; não são distribuídas com o projeto. Memória e preferências permanecem na área de dados do usuário, fora da pasta de instalação.
+Each user provides their own Gemini API key and may optionally configure Spotify. Credentials are protected using **Windows DPAPI** for the local user account; they are not bundled with the project. Memory and preferences are stored in the user's data directory, outside the installation folder.
 
-**Atualizações:** instalações anteriores à versão `0.1.1` precisam executar uma vez o Setup mais recente para habilitar o atualizador. O processo mantém a instalação anterior durante a troca, portanto necessita de espaço temporário adicional.
+**Updates:** Installations earlier than version `0.1.1` must run the latest Setup once to enable the updater. The update process preserves the previous installation during replacement, so additional temporary disk space is required.
 
-## Executar pelo código
+## Run from Source
 
-Requer **Windows** e **Python 3.11–3.13**:
+Requires **Windows** and **Python 3.11–3.13**:
 
 ```powershell
 python -m venv .venv
@@ -53,27 +53,27 @@ python -m venv .venv
 .\.venv\Scripts\python.exe ultron_entry.py
 ```
 
-Para preparar a automação web opcional:
+To enable optional browser automation:
 
 ```powershell
 .\.venv\Scripts\python.exe -m playwright install chromium
 ```
 
-Nunca publique suas chaves ou arquivos locais de configuração no GitHub.
+Never commit API keys or local configuration files to GitHub.
 
-## Desenvolvimento
+## Development
 
 ```powershell
 .\.venv\Scripts\python.exe -X utf8 -m unittest discover -s tests -p "test_*.py" -q
 ```
 
-Os testes usam mocks e dados fictícios; não comprovam conectividade real com todos os serviços.
+Tests use mocks and sample data; they do not establish real connectivity with every external service.
 
-Mais informações: [AGENTS.md](AGENTS.md) · [Instalador](installer/README.md) · [Validação do instalador](installer/VALIDACAO.md) · [WhatsApp](docs/whatsapp-validation.md)
+Further reading: [AGENTS.md](AGENTS.md) · [Installer](installer/README.md) · [Installer Validation](installer/VALIDACAO.md) · [WhatsApp Validation](docs/whatsapp-validation.md)
 
-## Licença e créditos
+## License & Credits
 
-Derivado do **[MARK LVI](https://github.com/FatihMakes/Mark-LVI)**, de **FatihMakes**. Mantida a licença original **[CC BY-NC 4.0](LICENSE)**, incluindo a atribuição e a restrição de uso comercial. A publicação do código não altera essas condições. O modelo facial MediaPipe mantém sua atribuição original, conforme os comentários do código e o projeto upstream.
+Derived from **[MARK LVI](https://github.com/FatihMakes/Mark-LVI)** by **FatihMakes**. The original **[CC BY-NC 4.0 license](LICENSE)** is retained, including attribution and non-commercial restrictions. Publishing the code does not change those terms. The MediaPipe face model retains its original attribution, as noted in the source comments and upstream project.
 
 ---
 
