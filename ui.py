@@ -7292,6 +7292,8 @@ class MainWindow(QMainWindow):
         from ui_activity import ActivityPage
         from ui_void_panels import VoidSubmenuDrawer
 
+        # Instantiated once at startup; follows zero-allocation and metric-caching rules.
+        # See performance documentation on _open_plugin_manager().
         self._sys_drawer = VoidSubmenuDrawer(
             "left", "SYSTEM", accent=self._get_accent,
             anchor_panel=self._left_primary, parent=self._home_page, bottom_clearance=114,
@@ -9319,6 +9321,26 @@ class MainWindow(QMainWindow):
             return
         ov.reposition()
 
+    # ── Performance Rules for Drawers & Overlays (_sys_drawer / _plugin_manager_overlay) ──
+    # CRITICAL ARCHITECTURAL CONSTRAINTS FOR 60 FPS STUTTER-FREE HUD PERFORMANCE:
+    # 1. Single-Instance Lifecycle (Zero-Allocation on Click):
+    #    Never destroy and re-instantiate drawers or overlays on click events. Creating widget trees,
+    #    parsing stylesheets, and rendering SVG icons synchronously freezes the Qt main thread.
+    #    Always reuse the existing instance and update states via refresh methods (e.g., refresh_plugins).
+    # 2. No Z-Order Thrashing (raise_() only once on open):
+    #    Never call raise_() inside per-frame animation loops (_on_paced_frame / reposition).
+    #    Calling raise_() at 60 FPS invalidates parent dirty-regions and causes full repaints
+    #    of the OpenGL/3D crystal HudCanvas and sibling overlays. Only raise_() on open_drawer().
+    # 3. Geometry & Metric Caching:
+    #    Never call Win32 coordinate mapping (mapToGlobal / mapFromGlobal) on every animation tick.
+    #    Cache layout bounds and only invalidate on actual ResizeEvent or MoveEvent.
+    # 4. Filter LayoutRequest Events:
+    #    Do not bind reposition() to QEvent.Type.LayoutRequest, as child updates or log typing
+    #    trigger cascaded reposition/repaint feedback loops.
+    # 5. Opaque #000000 Background & Pre-multiplied ARGB32 Image Caching:
+    #    Avoid partial alpha (e.g. rgba(..., 252)) on massive 800px+ surfaces, which forces CPU
+    #    software alpha blending. Pre-render holographic vector frames into a cached QImage
+    #    so paintEvent executes as a sub-millisecond hardware/CPU blit.
     def _open_plugin_manager(self, *, animate: bool = True):
         if hasattr(self, "_plugin_manager_overlay") and self._plugin_manager_overlay is not None:
             if not self._plugin_manager_overlay.isHidden() and self._plugin_manager_overlay.is_open():
@@ -9338,25 +9360,25 @@ class MainWindow(QMainWindow):
 
         plugins = self.get_plugins() if self.get_plugins else []
         home = getattr(self, "_home_page", None) or self.centralWidget()
-        if hasattr(self, "_plugin_manager_overlay") and self._plugin_manager_overlay is not None:
-            try:
-                self._plugin_manager_overlay.close_drawer(immediate=True)
-                self._plugin_manager_overlay.setParent(None)
-                self._plugin_manager_overlay.deleteLater()
-            except Exception:
-                pass
         anchor = getattr(self, "_left_primary", None)
-        ov = PluginManagerOverlay(plugins, anchor_panel=anchor, parent=home)
-        self._plugin_manager_overlay = ov
-        if hasattr(self, "hud") and self.hud is not None:
-            ov.bind_hud_clock(self.hud)
+
+        ov = getattr(self, "_plugin_manager_overlay", None)
+        if ov is None:
+            ov = PluginManagerOverlay(plugins, anchor_panel=anchor, parent=home)
+            self._plugin_manager_overlay = ov
+            if hasattr(self, "hud") and self.hud is not None:
+                ov.bind_hud_clock(self.hud)
+            if hasattr(self, "_left_primary"):
+                def _on_overlay_closed():
+                    if hasattr(self, "_left_primary") and self._left_primary.active_section() == "PLUGINS":
+                        self._left_primary.set_active_section(None)
+                ov.closed.connect(_on_overlay_closed)
+        else:
+            ov.refresh_plugins(plugins)
+
         ov.open_drawer(animate=animate)
         if hasattr(self, "_left_primary"):
             self._left_primary.set_active_section("PLUGINS")
-            def _on_overlay_closed():
-                if hasattr(self, "_left_primary") and self._left_primary.active_section() == "PLUGINS":
-                    self._left_primary.set_active_section(None)
-            ov.closed.connect(_on_overlay_closed)
 
     def _open_plugin_settings(self, target_ns: str = ""):
         if not hasattr(self, "_plugin_manager_overlay") or self._plugin_manager_overlay is None or self._plugin_manager_overlay.isHidden():

@@ -14,8 +14,10 @@ from __future__ import annotations
 import os
 from typing import Any, Optional
 
+import math
+import time
 from PyQt6.QtCore import QByteArray, QEvent, QLineF, QPointF, QRectF, Qt, pyqtSignal
-from PyQt6.QtGui import QBrush, QColor, QFont, QPainter, QPainterPath, QPen, QPixmap
+from PyQt6.QtGui import QBrush, QColor, QFont, QImage, QPainter, QPainterPath, QPen, QPixmap
 from PyQt6.QtWidgets import (
     QButtonGroup, QComboBox, QFrame, QHBoxLayout, QLabel, QLineEdit,
     QPushButton, QScrollArea, QSizePolicy, QStackedWidget, QVBoxLayout, QWidget
@@ -404,6 +406,7 @@ class _ModuleDetailsWidget(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.plugin_data = {}
+        self._cached_vision_perms: tuple[float, dict] | None = None
 
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.setStyleSheet("""
@@ -1249,6 +1252,7 @@ class _PluginManagerSurface(QWidget):
 
         cards_container = QWidget()
         cards_container.setStyleSheet("background: transparent;")
+        self._cards_container = cards_container
         self._cards_layout = QVBoxLayout(cards_container)
         self._cards_layout.setContentsMargins(0, 0, 4, 0)
         self._cards_layout.setSpacing(8)
@@ -1301,22 +1305,37 @@ class _PluginManagerSurface(QWidget):
         self._rebuild_holographic_paths(self._OW, self._OH)
 
     def _rebuild_holographic_paths(self, w: int, h: int):
-        """Pre-compute chamfered outer polygon and accent bracket lines for zero-overhead paintEvent."""
+        """Pre-render chamfered polygon and bracket lines into a cached QImage for instantaneous paintEvent."""
+        if w <= 1 or h <= 1:
+            return
+        dpr = max(1.0, float(self.devicePixelRatioF()))
+        pw = max(1, math.ceil(w * dpr))
+        ph = max(1, math.ceil(h * dpr))
+        img = QImage(pw, ph, QImage.Format.Format_ARGB32_Premultiplied)
+        img.setDevicePixelRatio(dpr)
+        img.fill(Qt.GlobalColor.transparent)
+
         c = 18.0
         b_len = 22.0
 
-        self._cached_frame_path = QPainterPath()
-        self._cached_frame_path.moveTo(c, 0)
-        self._cached_frame_path.lineTo(w - c, 0)
-        self._cached_frame_path.lineTo(w, c)
-        self._cached_frame_path.lineTo(w, h - c)
-        self._cached_frame_path.lineTo(w - c, h)
-        self._cached_frame_path.lineTo(c, h)
-        self._cached_frame_path.lineTo(0, h - c)
-        self._cached_frame_path.lineTo(0, c)
-        self._cached_frame_path.closeSubpath()
+        path = QPainterPath()
+        path.moveTo(c, 0)
+        path.lineTo(w - c, 0)
+        path.lineTo(w, c)
+        path.lineTo(w, h - c)
+        path.lineTo(w - c, h)
+        path.lineTo(c, h)
+        path.lineTo(0, h - c)
+        path.lineTo(0, c)
+        path.closeSubpath()
 
-        self._cached_bracket_lines = [
+        ip = QPainter(img)
+        ip.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        ip.fillPath(path, QColor(0, 0, 0, 255))
+        ip.setPen(QPen(QColor("#7a1622"), 1.0))
+        ip.drawPath(path)
+
+        bracket_lines = [
             QLineF(c, 0, c + b_len, 0),
             QLineF(0, c, 0, c + b_len),
             QLineF(w - c - b_len, 0, w - c, 0),
@@ -1326,23 +1345,23 @@ class _PluginManagerSurface(QWidget):
             QLineF(w - c - b_len, h, w - c, h),
             QLineF(w, h - c - b_len, w, h - c),
         ]
+        ip.setPen(QPen(QColor("#ff2a4b"), 2.0))
+        ip.drawLines(bracket_lines)
+        ip.end()
+
+        self._cached_bracket_lines = bracket_lines
+        self._cached_frame_path = path
+        self._cached_frame_image = img
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
         self._rebuild_holographic_paths(self.width(), self.height())
 
     def paintEvent(self, event):
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-
-        if self._cached_frame_path is not None:
-            painter.fillPath(self._cached_frame_path, QBrush(QColor(6, 2, 4, 252)))
-            painter.setPen(QPen(QColor("#7a1622"), 1.0))
-            painter.drawPath(self._cached_frame_path)
-
-        if self._cached_bracket_lines:
-            painter.setPen(QPen(QColor("#ff2a4b"), 2.0))
-            painter.drawLines(self._cached_bracket_lines)
+        if getattr(self, "_cached_frame_image", None) is not None:
+            painter = QPainter(self)
+            painter.drawImage(0, 0, self._cached_frame_image)
+            painter.end()
 
     def _apply_filter_styles(self):
         active_ss = """
@@ -1377,6 +1396,22 @@ class _PluginManagerSurface(QWidget):
 
     def _on_search_changed(self, text: str):
         self._search_text = (text or "").strip().lower()
+        self._update_card_visibility()
+
+    def refresh_plugins(self, plugins: list[dict]):
+        self._raw_plugins = list(plugins)
+        for p in plugins:
+            name = p.get("name", "")
+            if name in self._card_widgets:
+                card = self._card_widgets[name]
+                card.plugin_data = p
+                card.setPluginEnabled(bool(p.get("enabled", True)))
+            elif hasattr(self, "_cards_container"):
+                card = PluginCardWidget(p, parent=self._cards_container)
+                card.selected.connect(self._on_card_selected)
+                card.toggled.connect(self._on_card_toggled)
+                self._cards_layout.insertWidget(self._cards_layout.count() - 1, card)
+                self._card_widgets[name] = card
         self._update_card_visibility()
 
     def _update_card_visibility(self):
@@ -1423,6 +1458,7 @@ class _PluginManagerSurface(QWidget):
         if found:
             self._settings_widget.load_schema(found)
             self._right_stack.setCurrentIndex(1)
+            self.open_settings.emit(found.get("name", name))
 
     def _show_details_view(self):
         self._right_stack.setCurrentIndex(0)
@@ -1499,6 +1535,7 @@ class PluginManagerOverlay(QWidget):
         self._animating = False
         self._full_width = self._OW
         self._full_height = self._OH
+        self._cached_metrics: tuple[int, int, int, int] | None = None
 
         self.setObjectName("PluginManagerOverlay")
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
@@ -1532,11 +1569,23 @@ class PluginManagerOverlay(QWidget):
         if hud is not None:
             hud.pacedFrame.connect(self._on_paced_frame)
 
+    def refresh_plugins(self, plugins: list[dict]) -> None:
+        self._surface.refresh_plugins(plugins)
+
     def is_open(self) -> bool:
         return self._target > 0.5 or (self._progress > 0.01 and not self.isHidden())
 
+    def _invalidate_metrics(self) -> None:
+        self._cached_metrics = None
+
+    def _get_metrics(self) -> tuple[int, int, int, int]:
+        if self._cached_metrics is None:
+            self._cached_metrics = self._compute_metrics()
+        return self._cached_metrics
+
     def open_drawer(self, *, animate: bool = True) -> None:
         self._target = 1.0
+        self._invalidate_metrics()
         if not animate or self._hud is None:
             self._progress = 1.0
             self._animating = False
@@ -1557,6 +1606,7 @@ class PluginManagerOverlay(QWidget):
     def close_drawer(self, *, immediate: bool = False) -> None:
         if not self.is_open() and not self._animating and self._progress <= 0.001:
             self.hide()
+            self.closed.emit()
             return
         self._target = 0.0
         if immediate or self._hud is None:
@@ -1616,7 +1666,7 @@ class PluginManagerOverlay(QWidget):
             if not self.isHidden():
                 self.hide()
             return
-        left_x, top_y, full_w, full_h = self._compute_metrics()
+        left_x, top_y, full_w, full_h = self._get_metrics()
         vis_w = max(1, int(round(full_w * max(0.0, min(1.0, self._progress)))))
 
         if self._surface.width() != full_w or self._surface.height() != full_h:
@@ -1624,19 +1674,29 @@ class PluginManagerOverlay(QWidget):
 
         self.setGeometry(left_x, top_y, vis_w, full_h)
         self._surface.move(vis_w - full_w, 0)
-        if not self.isHidden():
-            self.raise_()
+        # Note: self.raise_() is only called in open_drawer(), never on 60 FPS animation ticks
 
     def show_settings(self, target_ns: str = ""):
         self._surface.show_settings(target_ns)
 
     def eventFilter(self, watched, event):
-        if watched is not self and event.type() in (
-            QEvent.Type.Resize, QEvent.Type.Move, QEvent.Type.Show, QEvent.Type.LayoutRequest
-        ):
+        if watched is not self and event.type() in (QEvent.Type.Resize, QEvent.Type.Move):
+            self._invalidate_metrics()
             if not self.isHidden():
                 self.reposition()
         return False
 
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._invalidate_metrics()
+        if hasattr(self, "_surface") and self._surface is not None and not self._animating:
+            self._surface.resize(event.size())
+
     def keyPressEvent(self, event):
         self._surface.keyPressEvent(event)
+
+    def __getattr__(self, name: str):
+        surface = self.__dict__.get('_surface')
+        if surface is not None and hasattr(surface, name):
+            return getattr(surface, name)
+        raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'")
