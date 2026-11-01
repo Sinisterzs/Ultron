@@ -33,11 +33,11 @@ The project is under active development. Some features require your own credenti
 
 ## Patch Notes
 
+- **v0.1.10** — Added boot launcher update and repair support to recover from startup errors, and fixed the exit code 1 crash on packaged installations by including missing UI modules.
 - **v0.1.9** — Holographic Plugin Control Center with in-place modular settings, Smart Vision visual perception, and smooth HUD-synchronized drawer transitions.
 - **v0.1.8** — Fixed the wake word infinite sleep loop and improved local neural model downloads on packaged Windows runtimes.
 - **v0.1.7** — Pure black VOID OS interface, Shield Ruby 2.5D crystal, and reactive audio HUD telemetry.
 - **v0.1.6** — Host telemetry status bar, collapsible news drawer, and flat vector bottom dock.
-- **v0.1.5** — Regional web search improvements and human verification gates for external actions.
 
 Full release notes and download links are available on the [Releases](https://github.com/Sinisterzs/Ultron/releases) page.
 
@@ -79,7 +79,7 @@ Never commit API keys or local configuration files to GitHub.
 
 Tests use mocks and sample data; they do not establish real connectivity with every external service.
 
-Further reading:  [Installer](installer/README.md) · [Installer Validation](installer/VALIDACAO.md) · [WhatsApp Validation](docs/whatsapp-validation.md)
+Further reading: [Installer](installer/README.md) · [Installer Validation](installer/VALIDACAO.md) · [WhatsApp Validation](docs/whatsapp-validation.md)
 
 ## License & Credits
 

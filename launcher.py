@@ -1,9 +1,10 @@
 """Mark LVI — D20O.4, launcher de inicialização em processo separado.
 
-Executar na raiz do projeto: python launcher_mark_lvi_d20o4_status_abaixo_barra.py
+Executar na raiz do projeto: python launcher.py
 Requer PyQt6 e o Mark LVI completo instalado na mesma pasta.
 Inicia main.py e espera sinal real de que a janela principal foi exibida.
 O assistente de voz pode continuar conectando depois que o HUD aparece.
+Inclui verificação e aplicação de atualizações diretamente pelo launcher.
 """
 from __future__ import annotations
 
@@ -14,10 +15,11 @@ import os
 import json
 import subprocess
 import tempfile
+import threading
 from pathlib import Path
 
-from PyQt6.QtCore import Qt, QPoint, QPointF, QRectF, QTimer, pyqtSignal
-from PyQt6.QtGui import QColor, QPainter, QPen, QBrush, QLinearGradient, QRadialGradient, QPolygonF, QFont
+from PyQt6.QtCore import Qt, QPoint, QPointF, QRectF, QTimer, pyqtSignal, QUrl
+from PyQt6.QtGui import QColor, QPainter, QPen, QBrush, QLinearGradient, QRadialGradient, QPolygonF, QFont, QDesktopServices
 from PyQt6.QtWidgets import QApplication, QWidget, QPushButton
 
 RED = QColor('#ff304d')
@@ -27,11 +29,14 @@ DIM = QColor('#82515a')
 
 class Launcher(QWidget):
     ready = pyqtSignal()  # for integration; NOT emitted by demo sequence
+    _update_status_signal = pyqtSignal(str, object)
+    _check_finished_signal = pyqtSignal(object, str)
+    _download_finished_signal = pyqtSignal(object, str)
 
     def __init__(self):
         super().__init__()
-        self.setWindowTitle('MARK LVI — Boot Launcher')
-        self.setFixedSize(540, 355)
+        self.setWindowTitle('ULTRON — Boot Launcher')
+        self.setFixedSize(540, 375)
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Window)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         self._drag_origin = None
@@ -60,10 +65,71 @@ class Launcher(QWidget):
         self._demo_timer.timeout.connect(self._next_demo)
 
         self.close_btn = QPushButton('×', self)
-        self.close_btn.setGeometry(496, 20, 26, 26)
+        self.close_btn.setGeometry(496, 16, 26, 26)
         self.close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.close_btn.setStyleSheet('QPushButton { background: transparent; color: #92606a; border: 0; font-size: 24px; } QPushButton:hover { color: #ff576d; }')
         self.close_btn.clicked.connect(self.close)
+
+        self.update_btn = QPushButton('PROCURAR ATUALIZAÇÃO', self)
+        self.update_btn.setGeometry(318, 18, 170, 22)
+        self.update_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.update_btn.setStyleSheet('''
+            QPushButton {
+                background: #0d0407;
+                border: 1px solid #4a1520;
+                border-radius: 3px;
+                color: #ff4d66;
+                font: 9px "Consolas";
+                font-weight: bold;
+                padding: 2px 8px;
+            }
+            QPushButton:hover {
+                background: #200810;
+                border-color: #ff304d;
+                color: #ffffff;
+            }
+            QPushButton:pressed {
+                background: #ff304d;
+                color: #000000;
+            }
+            QPushButton:disabled {
+                background: #080305;
+                border-color: #240b10;
+                color: #55333b;
+            }
+        ''')
+        self.update_btn.clicked.connect(self._on_update_btn_clicked)
+
+        self.action_btn = QPushButton('BUSCAR ATUALIZAÇÕES PARA REPARAR', self)
+        self.action_btn.setGeometry(110, 336, 320, 26)
+        self.action_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.action_btn.setStyleSheet('''
+            QPushButton {
+                background: #140508;
+                border: 1px solid #7c2133;
+                border-radius: 4px;
+                color: #ff4d66;
+                font: 10px "Consolas";
+                font-weight: bold;
+                padding: 4px 12px;
+            }
+            QPushButton:hover {
+                background: #280812;
+                border-color: #ff304d;
+                color: #ffffff;
+            }
+            QPushButton:pressed {
+                background: #ff304d;
+                color: #000000;
+            }
+            QPushButton:disabled {
+                background: #0a0305;
+                border-color: #2b0b12;
+                color: #55333b;
+            }
+        ''')
+        self.action_btn.clicked.connect(self._on_action_btn_clicked)
+        self.action_btn.hide()
 
         self.demo_btn = QPushButton('DEMONSTRAR SEQUÊNCIA', self)
         self.demo_btn.setGeometry(173, 309, 194, 28)
@@ -72,6 +138,15 @@ class Launcher(QWidget):
         self.demo_btn.clicked.connect(self.start_demo)
         # Integrated build: launch only via Qt's event loop, after the splash appears.
         self.demo_btn.hide()
+
+        # Update controller state
+        self._updating = False
+        self._available_release = None
+        self._update_stop = threading.Event()
+        self._update_status_signal.connect(self._on_update_status)
+        self._check_finished_signal.connect(self._on_check_finished)
+        self._download_finished_signal.connect(self._on_download_finished)
+
         self._child = None
         self._status_file = None
         self._hud_ready = False
@@ -89,6 +164,7 @@ class Launcher(QWidget):
         if not getattr(sys, "frozen", False) and not main_file.is_file():
             self.set_status("ERRO: main.py não encontrado na pasta", None)
             self._poll.stop()
+            self._show_error_recovery()
             return
         # Unique file: a stale status from a previous launch cannot fake readiness.
         fd, name = tempfile.mkstemp(prefix="mark_lvi_boot_", suffix=".json")
@@ -103,12 +179,14 @@ class Launcher(QWidget):
                                            cwd=str(root), env=env)
         except Exception as exc:
             self.set_status(f"ERRO ao iniciar: {exc}", None)
+            self._show_error_recovery()
 
     def _poll_child(self):
         if self._child is not None and self._child.poll() is not None:
             self._poll.stop()
             if not self._hud_ready:
                 self.set_status(f"ERRO: processo encerrou ({self._child.returncode})", None)
+                self._show_error_recovery()
             self._cleanup_status()
             return
         path = self._status_file
@@ -131,8 +209,14 @@ class Launcher(QWidget):
         elif stage == "error":
             self.set_status("ERRO: " + str(status)[:45], None)
             self._poll.stop()
+            self._show_error_recovery()
         else:
             self.set_status(status, None)
+
+    def _show_error_recovery(self):
+        if not self._updating and self._available_release is None:
+            self.action_btn.setText("BUSCAR ATUALIZAÇÕES PARA REPARAR")
+            self.action_btn.show()
 
     def _record_boot_stage(self, stage: str, status: str):
         """Store real bootstrap events in a small, capped visual history."""
@@ -162,6 +246,7 @@ class Launcher(QWidget):
 
     def closeEvent(self, event):
         self._poll.stop()
+        self._update_stop.set()
         # Never leave an invisible orphan Mark LVI if the splash is cancelled.
         if not self._hud_ready and self._child is not None and self._child.poll() is None:
             try:
@@ -199,6 +284,147 @@ class Launcher(QWidget):
         status, percentage = self._demo_stages[self._demo_index]
         self.set_status(status, percentage)
 
+    # ── Update management from Launcher ─────────────────────────────────────────
+
+    def _on_update_btn_clicked(self):
+        if self._available_release is not None:
+            self._start_update_download(self._available_release)
+        else:
+            self._start_update_check()
+
+    def _on_action_btn_clicked(self):
+        if self.action_btn.text() == "ABRIR RELEASES NO GITHUB":
+            try:
+                from core.updates import read_release_config
+                repo = read_release_config().get("github_repository", "Sinisterzs/Ultron")
+            except Exception:
+                repo = "Sinisterzs/Ultron"
+            QDesktopServices.openUrl(QUrl(f"https://github.com/{repo}/releases"))
+            return
+        if self._available_release is not None:
+            self._start_update_download(self._available_release)
+        else:
+            self._start_update_check()
+
+    def _start_update_check(self):
+        if self._updating:
+            return
+        self._updating = True
+        self._available_release = None
+        self._update_stop.clear()
+        self.update_btn.setText("VERIFICANDO...")
+        self.update_btn.setEnabled(False)
+        self.action_btn.setText("VERIFICANDO SERVIDORES...")
+        self.action_btn.setEnabled(False)
+        self.action_btn.show()
+        self.set_status("Consultando atualizações no GitHub...", None)
+
+        def worker():
+            try:
+                from core.updates import check_release
+                release = check_release(force=True)
+                self._check_finished_signal.emit(release, "")
+            except Exception as exc:
+                self._check_finished_signal.emit(None, str(exc))
+
+        threading.Thread(target=worker, daemon=True, name="launcher-update-check").start()
+
+    def _on_check_finished(self, release, err: str):
+        self._updating = False
+        self.update_btn.setEnabled(True)
+        self.action_btn.setEnabled(True)
+
+        if err:
+            self.set_status(f"Falha ao verificar: {err[:36]}", None)
+            self.update_btn.setText("PROCURAR ATUALIZAÇÃO")
+            self.action_btn.setText("TENTAR NOVAMENTE")
+            return
+
+        if release is None:
+            self.set_status("Você já está na versão mais recente.", None)
+            self.update_btn.setText("PROCURAR ATUALIZAÇÃO")
+            self.action_btn.setText("ABRIR RELEASES NO GITHUB")
+            return
+
+        self._available_release = release
+        self.set_status(f"Nova versão v{release.version} disponível!", 0)
+        self.update_btn.setText("BAIXAR ATUALIZAÇÃO")
+        self.action_btn.setText(f"BAIXAR E ATUALIZAR (v{release.version})")
+
+    def _start_update_download(self, release):
+        if self._updating:
+            return
+        downloadable = bool(release.installer_url and release.sha256)
+        if downloadable:
+            try:
+                from core.update_download import installed_root
+                installed_root()
+            except Exception:
+                downloadable = False
+
+        if not downloadable:
+            QDesktopServices.openUrl(QUrl(release.url))
+            self.set_status("Página de download aberta no navegador.", None)
+            self.update_btn.setText("PROCURAR ATUALIZAÇÃO")
+            self.action_btn.setText("ABRIR RELEASES NO GITHUB")
+            self._available_release = None
+            return
+
+        self._updating = True
+        self._update_stop.clear()
+        self.update_btn.setText("BAIXANDO...")
+        self.update_btn.setEnabled(False)
+        self.action_btn.setText("BAIXANDO INSTALADOR...")
+        self.action_btn.setEnabled(False)
+        self.set_status(f"Baixando v{release.version}...", 0)
+
+        # Terminate child process if still running to release locks
+        if self._child is not None and self._child.poll() is None:
+            try:
+                self._child.terminate()
+            except OSError:
+                pass
+
+        def worker():
+            try:
+                from core.update_download import download_update, start_update
+                def on_progress(text, current, total):
+                    pct = (current * 100 / total) if total else None
+                    self._update_status_signal.emit(f"Baixando: {int(pct or 0)}%", pct)
+
+                prepared = download_update(release, on_progress, self._update_stop.is_set)
+                self._update_status_signal.emit("Iniciando instalador...", 100)
+                folder = start_update(prepared, on_progress, self._update_stop.is_set)
+                self._download_finished_signal.emit(folder, "")
+            except Exception as exc:
+                from core.install_manager import redact_install_output
+                self._download_finished_signal.emit(None, redact_install_output(str(exc)))
+
+        threading.Thread(target=worker, daemon=True, name="launcher-update-download").start()
+
+    def _on_update_status(self, text: str, progress: object):
+        self.set_status(text, progress)
+
+    def _on_download_finished(self, folder, err: str):
+        self._updating = False
+        self.update_btn.setEnabled(True)
+        self.action_btn.setEnabled(True)
+
+        if err:
+            self.set_status(f"Erro no download: {err[:36]}", None)
+            self.update_btn.setText("PROCURAR ATUALIZAÇÃO")
+            self.action_btn.setText("TENTAR NOVAMENTE")
+            return
+
+        if folder is not None:
+            (folder / "proceed").touch()
+            self.set_status("Reiniciando para aplicar a atualização...", 100)
+            self.update_btn.setText("REINICIANDO...")
+            self.update_btn.setEnabled(False)
+            self.action_btn.setText("APLICANDO ATUALIZAÇÃO...")
+            self.action_btn.setEnabled(False)
+            QTimer.singleShot(600, self.close)
+
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
             self._drag_origin = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
@@ -232,22 +458,23 @@ class Launcher(QWidget):
 
     def paintEvent(self, event):
         t = time.perf_counter() - self._start
+        h = self.height()
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         # Outer frame and pitch-black interior; no backdrop glow outside the crystal area.
         p.setPen(QPen(QColor('#491522'), 1))
         p.setBrush(QColor('#000000'))
-        p.drawRoundedRect(QRectF(1, 1, 538, 353), 9, 9)
+        p.drawRoundedRect(QRectF(1, 1, 538, h - 2), 9, 9)
+
         p.setPen(QPen(QColor('#7c2133'), 1.4))
-        for ox, oy, sx, sy in [(15, 15, 1, 1), (525, 15, -1, 1), (15, 341, 1, -1), (525, 341, -1, -1)]:
+        for ox, oy, sx, sy in [(15, 15, 1, 1), (525, 15, -1, 1), (15, h - 14, 1, -1), (525, h - 14, -1, -1)]:
             p.drawLine(QPointF(ox, oy), QPointF(ox + 18*sx, oy))
             p.drawLine(QPointF(ox, oy), QPointF(ox, oy + 13*sy))
 
-        self._text(p, 27, 36, 'MARK LVI', 12, '#ff445b', True)
-        self._text(p, 127, 36, '//  BOOT SEQUENCE', 9, '#665159')
-        self._text(p, 478, 35, 'D20O.4', 8, '#4d3c41', center=True)
+        self._text(p, 27, 34, 'ULTRON', 12, '#ff445b', True)
+        self._text(p, 95, 34, '//  BOOT SEQUENCE', 9, '#665159')
         p.setPen(QPen(QColor('#210c13'), 1))
-        p.drawLine(28, 49, 512, 49)
+        p.drawLine(28, 48, 512, 48)
 
         cx, cy = 270.0, 147.0
         pulse = 0.85 + .15 * math.sin(t * 1.7)
@@ -297,8 +524,7 @@ class Launcher(QWidget):
         p.drawLine(mid, bottom)
         p.restore()
 
-        # D20O.4 — status centralizado sob a barra; todos os eventos vêm
-        # do protocolo MARK_LVI_BOOT_STATUS real (nunca inventar progresso).
+        # Status centralizado sob a barra
         self._text(p, 270, 232, 'INITIALIZING SYSTEM', 12, '#ff4b64', True, center=True)
         self._text(p, 33, 265, 'BOOTSTRAP STATUS', 8, '#72525a')
         if self._progress is not None:
@@ -336,19 +562,18 @@ class Launcher(QWidget):
             'hud_constructed': 'Aguardando a primeira exibição do HUD',
             'qt_starting': 'Inicializando animações e event loop',
             'hud_shown': 'Inicialização da interface concluída',
-            'error': 'Verifique a mensagem de erro no terminal',
+            'error': 'Falha ao iniciar. Busque atualizações para reparar.',
         }
         stage = self._boot_stage
         is_error = stage == 'error' or self._status.startswith('ERRO:')
         title = self._status if is_error else stage_titles.get(stage, self._status)
         detail = stage_details.get(stage, self._status)
-        # Mensagem específica vinda do main.py tem prioridade como detalhe.
         if not is_error and self._status and self._status not in (title, 'HUD pronto'):
             detail = self._status
-        self._text(p, 270, 309, title[:52], 10,
+        self._text(p, 270, 302, title[:52], 10,
                    '#ff657a' if not is_error else '#ff334e', True, center=True)
         if detail != title:
-            self._text(p, 270, 328, detail[:60], 8, '#8c6670', center=True)
+            self._text(p, 270, 320, detail[:60], 8, '#8c6670', center=True)
         p.end()
 
 

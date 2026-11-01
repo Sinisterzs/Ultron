@@ -60,6 +60,8 @@ class VoidInterfaceTests(unittest.TestCase):
         root = Path(__file__).resolve().parents[1]
         rels = set(payload_files(root))
         self.assertIn("ui_void_panels.py", rels)
+        self.assertIn("ui_plugins_center.py", rels)
+        self.assertIn("ui_vision.py", rels)
 
     def test_titlebar_renders_pure_black_with_crimson_corner_accents(self):
         host = QWidget()

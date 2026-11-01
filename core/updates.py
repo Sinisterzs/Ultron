@@ -53,7 +53,7 @@ def parse_release(payload, repository, current):
     return Release(tag.removeprefix("v"), page)
 
 
-def check_release(config=None, *, state_path=None, now=None):
+def check_release(config=None, *, state_path=None, now=None, force=False):
     config = config if config is not None else read_release_config()
     repo = config.get("github_repository", "")
     if not repo:
@@ -69,7 +69,7 @@ def check_release(config=None, *, state_path=None, now=None):
     except (OSError, ValueError):
         state = {}
     interval = max(300, float(config.get("check_interval_minutes", 5)) * 60)
-    if moment - state.get("checked_at", 0) < interval and state.get("repository") == repo and state.get("version") == current:
+    if not force and moment - state.get("checked_at", 0) < interval and state.get("repository") == repo and state.get("version") == current:
         return None
     request = urllib.request.Request(f"https://api.github.com/repos/{repo}/releases/latest", headers={
         "User-Agent": "ULTRON-UpdateCheck", "Accept": "application/vnd.github+json",
